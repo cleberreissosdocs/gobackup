@@ -285,32 +285,105 @@ func (s *Server) handleCreateNotificationChannel(w http.ResponseWriter, r *http.
 	writeJSON(w, http.StatusCreated, map[string]string{"channel_id": id.String()})
 }
 
+// gbCentralCSS is the shared modern design system for every Central page
+// EXCEPT the health wallboard (/dashboard), which intentionally keeps its
+// own bold, big-icon look. Mirrors the tokens/approach used by the shared
+// agent admin UI (internal/webui/templates.go) so the whole app feels
+// consistent — card-style sections, pill badges, label-above-input forms.
+const gbCentralCSS = `
+* { box-sizing: border-box; }
+:root {
+  --gb-bg: #0b0c10; --gb-bg-elev: #15161c; --gb-card: #16171e; --gb-card-2: #1b1c24;
+  --gb-border: #262835; --gb-border-soft: #1f2029;
+  --gb-text: #e8e8ec; --gb-text-muted: #8a8f9c; --gb-text-faint: #5d6170;
+  --gb-accent: #2d6cdf; --gb-accent-hover: #4a84ec;
+  --gb-success: #2ecc71; --gb-success-bg: rgba(46,204,113,0.12);
+  --gb-danger: #f0544a; --gb-danger-bg: rgba(240,84,74,0.12);
+  --gb-warning: #e0a030; --gb-warning-bg: rgba(224,160,48,0.12);
+  --gb-radius: 12px; --gb-radius-sm: 8px;
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+  margin: 0; background: radial-gradient(circle at 15% 0%, #15161d 0%, var(--gb-bg) 55%);
+  color: var(--gb-text); -webkit-font-smoothing: antialiased;
+}
+nav {
+  background: rgba(21,22,28,0.85); backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--gb-border-soft); padding: 0.9rem 2rem;
+  display: flex; justify-content: space-between; align-items: center;
+  position: sticky; top: 0; z-index: 10; margin-bottom: 0 !important;
+}
+nav > a:first-child { display:flex; align-items:center; gap:0.55rem; font-weight:700; font-size:1.05rem; letter-spacing:-0.01em; color: var(--gb-text); text-decoration:none; }
+nav > a:first-child::before { content:""; width:10px; height:10px; border-radius:50%; background: var(--gb-accent); box-shadow: 0 0 10px 1px rgba(45,108,223,0.7); display:inline-block; }
+nav a { color: var(--gb-text-muted); text-decoration: none; transition: color .15s ease; }
+nav a:hover { color: var(--gb-text); }
+form.logout { display:inline; margin-left: 1.25rem; }
+#gb-content { padding: 2.25rem 2rem 4rem; max-width: 1100px; margin: 0 auto; }
+h1 { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.015em; margin: 0 0 1.5rem; }
+h2 { font-size: 1.2rem; font-weight: 600; margin: 2.5rem 0 1rem; }
+a { color: #7fb4f5; }
+input, select, button, textarea { font-size: 0.92rem; font-family: inherit; }
+input[type=text], input[type=password], input[type=number], textarea, select {
+  background: var(--gb-bg-elev); color: var(--gb-text); border: 1px solid var(--gb-border);
+  border-radius: var(--gb-radius-sm); padding: 0.55rem 0.7rem; width:100%; max-width:300px;
+  margin: 0.2rem 0; box-sizing: border-box; transition: border-color .15s ease, box-shadow .15s ease;
+}
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--gb-accent); box-shadow: 0 0 0 3px rgba(45,108,223,0.22); }
+input::placeholder, textarea::placeholder { color: var(--gb-text-faint); }
+form > div, fieldset > div { display:flex; flex-direction:column; align-items:flex-start; gap:0.3rem; margin-bottom: 1.1rem; }
+button {
+  background: var(--gb-accent); color: #fff; border: none; padding: 0.55rem 1.1rem;
+  cursor: pointer; border-radius: var(--gb-radius-sm); font-weight: 500;
+  transition: background .15s ease, transform .1s ease;
+}
+button:hover { background: var(--gb-accent-hover); }
+button:active { transform: translateY(1px); }
+button.secondary { background: transparent; color: var(--gb-danger); border: 1px solid rgba(240,84,74,0.4); }
+button.secondary:hover { background: var(--gb-danger-bg); }
+button:disabled, button.secondary:disabled { background: var(--gb-card-2) !important; color: var(--gb-text-faint) !important; border-color: var(--gb-border) !important; cursor: not-allowed; }
+fieldset {
+  border: 1px solid var(--gb-border); background: linear-gradient(160deg, var(--gb-card) 0%, var(--gb-bg-elev) 100%);
+  margin-bottom: 1.75rem; border-radius: var(--gb-radius); padding: 1.6rem 1.75rem; box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+  max-width: 520px;
+}
+legend {
+  padding: 0.15rem 0.7rem; color: var(--gb-accent); font-weight: 600; font-size: 0.78rem;
+  text-transform: uppercase; letter-spacing: 0.05em; background: rgba(45,108,223,0.12); border-radius: 20px;
+}
+.gb-card {
+  border: 1px solid var(--gb-border); background: linear-gradient(160deg, var(--gb-card) 0%, var(--gb-bg-elev) 100%);
+  border-radius: var(--gb-radius); box-shadow: 0 6px 20px rgba(0,0,0,0.25); padding: 0.4rem 0; margin-bottom: 1rem;
+  overflow-x: auto;
+}
+table { border-collapse: separate; border-spacing: 0; width: 100%; margin: 0; }
+th, td { padding: 0.8rem 1.2rem; text-align: left; border-bottom: 1px solid var(--gb-border-soft); }
+th { color: var(--gb-text-muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; border-bottom: 1px solid var(--gb-border); }
+tbody tr:hover { background: rgba(255,255,255,0.02); }
+tbody tr:last-child td { border-bottom: none; }
+.online { color: var(--gb-success); font-weight:600; }
+.offline { color: var(--gb-danger); font-weight:600; }
+.unknown { color: var(--gb-text-muted); }
+.notice { background: var(--gb-success-bg); border:1px solid rgba(46,204,113,0.35); color:#9ee8b4; padding:0.7rem 1.1rem; border-radius: var(--gb-radius-sm); max-width:480px; }
+.error { color: var(--gb-danger); }
+small { color: var(--gb-text-muted); }
+`
+
 var notificationsTmpl = template.Must(template.New("notifications").Parse(`<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
 <title>GoBackup Central — Canais de notificação</title>
-<style>
-body { font-family: sans-serif; margin: 2rem; background:#111; color:#eee; }
-a { color:#9ad1ff; }
-nav { margin-bottom: 1rem; }
-form.logout { display:inline; margin-left: 1rem; }
-button { background:#2d6cdf; color:#fff; border:none; padding:0.4rem 1rem; cursor:pointer; border-radius:4px; font-size:0.95rem; }
-button:hover { background:#3a7ef0; }
-.notice { background:#1d3a24; border:1px solid #2d6a3a; color:#b6f0c0; padding:0.6rem 1rem; border-radius:4px; max-width:480px; }
-fieldset { border:1px solid #333; border-radius:6px; margin-bottom:1.2rem; max-width:480px; }
-legend { padding:0 0.5rem; color:#9ad1ff; font-weight:bold; }
-form > div, fieldset > div { margin-bottom:0.7rem; }
-label, form > div, fieldset > div { display:block; }
-input[type=text], input[type=number], input[type=password], select {
-  background:#1b1b22; border:1px solid #444; color:#eee; border-radius:4px; padding:0.35rem 0.5rem; width:100%; max-width:300px; margin-top:0.25rem; box-sizing:border-box;
-}
-input:focus, select:focus { outline:none; border-color:#2d6cdf; }
-</style>
+<style>` + gbCentralCSS + `</style>
 </head>
 <body>
-<nav><a href="/">&larr; GoBackup Central</a>
-<form class="logout" method="post" action="/logout"><button type="submit">Sair</button></form></nav>
+<nav><a href="/">GoBackup Central</a>
+<div style="display:flex; align-items:center; gap:1.25rem;">
+  <a href="/notifications">Canais de notificação</a>
+  <a href="/dashboard">Dashboard</a>
+  <form class="logout" method="post" action="/logout"><button type="submit">Sair</button></form>
+</div>
+</nav>
+<div id="gb-content">
 <h1>Canais de notificação</h1>
 {{if .Message}}<p class="notice">{{.Message}}</p>{{end}}
 <form method="post" action="/notifications">
@@ -338,6 +411,7 @@ input:focus, select:focus { outline:none; border-color:#2d6cdf; }
   <button type="submit">Adicionar canal</button>
 </form>
 <p><a href="/">&larr; voltar ao dashboard</a></p>
+</div>
 </body>
 </html>`))
 
@@ -396,30 +470,24 @@ var dashboardTmpl = template.Must(template.New("dashboard").Parse(`<!doctype htm
 <meta charset="utf-8">
 <meta http-equiv="refresh" content="3">
 <title>GoBackup Central</title>
-<style>
-body { font-family: sans-serif; margin: 2rem; background:#111; color:#eee; }
-table { border-collapse: collapse; width: 100%; max-width: 900px; }
-th, td { border: 1px solid #333; padding: 0.5rem 1rem; text-align: left; }
-th { background: #222; }
-.online { color: #4caf50; font-weight: bold; }
-.offline { color: #f44336; font-weight: bold; }
-.unknown { color: #999; }
-a { color:#9ad1ff; }
-nav { margin-bottom: 1rem; }
-form.logout { display:inline; margin-left: 1rem; }
-button { background:#2d6cdf; color:#fff; border:none; padding:0.3rem 0.8rem; cursor:pointer; border-radius:4px; }
-button.secondary { background:#8a2d2d; }
-button.secondary:hover { background:#a83a3a; }
-button:disabled, button.secondary:disabled { background:#2a2a2a; color:#777; cursor:not-allowed; }
-tr.gb-row-offline { color:#6d7280; }
-tr.gb-row-offline td { color:#6d7280; }
-.gb-disabled-link { color:#555; cursor:not-allowed; pointer-events:none; }
+<style>` + gbCentralCSS + `
+tr.gb-row-offline { color: var(--gb-text-faint); }
+tr.gb-row-offline td { color: var(--gb-text-faint); }
+.gb-disabled-link { color: var(--gb-text-faint); cursor:not-allowed; pointer-events:none; }
+.gb-health-dot { font-size:1.1rem; }
 </style>
 </head>
 <body>
-<nav><a href="/notifications">Canais de notificação</a> · <a href="/dashboard">Dashboard</a>
-<form class="logout" method="post" action="/logout"><button type="submit">Sair</button></form></nav>
-<h1>GoBackup Central — status dos servidores</h1>
+<nav><a href="/">GoBackup Central</a>
+<div style="display:flex; align-items:center; gap:1.25rem;">
+  <a href="/notifications">Canais de notificação</a>
+  <a href="/dashboard">Dashboard</a>
+  <form class="logout" method="post" action="/logout"><button type="submit">Sair</button></form>
+</div>
+</nav>
+<div id="gb-content">
+<h1>Status dos servidores</h1>
+<div class="gb-card">
 <table>
 <tr><th>Agente</th><th>Hostname</th><th>Status</th><th>Último heartbeat</th><th>Saúde</th><th></th></tr>
 {{range .Agents}}
@@ -428,9 +496,9 @@ tr.gb-row-offline td { color:#6d7280; }
   <td>{{.Hostname}}</td>
   <td class="{{.Status}}">{{.Status}}</td>
   <td>{{.LastSeen}}</td>
-  <td>{{if .HasFailure}}<span style="color:#f44336; font-size:1.4rem;" title="alguma tarefa deste agente falhou na última execução">&#9679;</span>{{else}}<span style="color:#4caf50; font-size:1.4rem;" title="nenhuma falha nas últimas execuções">&#9679;</span>{{end}}</td>
+  <td>{{if .HasFailure}}<span class="gb-health-dot" style="color: var(--gb-danger);" title="alguma tarefa deste agente falhou na última execução">&#9679;</span>{{else}}<span class="gb-health-dot" style="color: var(--gb-success);" title="nenhuma falha nas últimas execuções">&#9679;</span>{{end}}</td>
   <td style="white-space:nowrap;">
-    <a href="/agents/{{.ID}}/">administrar</a><span style="display:inline-block; width:2rem;"></span><a href="/agents/{{.ID}}/rename">renomear</a><span style="display:inline-block; width:2rem;"></span><span style="border-left:1px solid #444; padding-left:1rem;">
+    <a href="/agents/{{.ID}}/">administrar</a><span style="display:inline-block; width:2rem;"></span><a href="/agents/{{.ID}}/rename">renomear</a><span style="display:inline-block; width:2rem;"></span><span style="border-left:1px solid var(--gb-border); padding-left:1rem;">
     <form method="post" action="/agents/{{.ID}}/delete" style="display:inline" onsubmit="return confirm('Apagar o agente \'{{.Name}}\' do Central? O agente continua rodando no servidor dele, mas some deste painel e precisa ser registrado de novo (tela Configurações do agente) para reaparecer.');">
       <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
       <button type="submit" class="secondary">Apagar</button>
@@ -442,8 +510,10 @@ tr.gb-row-offline td { color:#6d7280; }
 <tr><td colspan="6">nenhum agente cadastrado ainda</td></tr>
 {{end}}
 </table>
+</div>
 
 <h2>Tarefas de todos os servidores</h2>
+<div class="gb-card">
 <table>
 <tr><th>Servidor</th><th>Tarefa</th><th>Tipo</th><th>Agendamento</th><th>Ação</th></tr>
 {{range .Jobs}}
@@ -460,7 +530,7 @@ tr.gb-row-offline td { color:#6d7280; }
       {{if eq .Kind "database"}}<input type="password" name="password" placeholder="senha (se necessário)">{{end}}
       <button type="submit">Executar</button>
     </form>
-    <span style="display:inline-block; width:1.5rem;"></span><span style="border-left:1px solid #444; padding-left:1rem;">
+    <span style="display:inline-block; width:1.5rem;"></span><span style="border-left:1px solid var(--gb-border); padding-left:1rem;">
     <form method="post" action="/agents/{{.AgentID}}/jobs/{{.JobID}}/delete" style="display:inline" onsubmit="return confirm('Apagar a tarefa \'{{.Name}}\' do agente \'{{.AgentName}}\'? Isso remove a definição e o histórico de execuções (os arquivos já copiados NÃO são apagados).');">
       <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
       <button type="submit" class="secondary">Apagar</button>
@@ -469,7 +539,7 @@ tr.gb-row-offline td { color:#6d7280; }
     {{else}}
     <a class="gb-disabled-link" title="agente offline — ações indisponíveis até reconectar">Editar</a>
     <button type="button" disabled title="agente offline — ações indisponíveis até reconectar" style="margin-left:0.8rem">Executar</button>
-    <span style="display:inline-block; width:1.5rem;"></span><span style="border-left:1px solid #444; padding-left:1rem;">
+    <span style="display:inline-block; width:1.5rem;"></span><span style="border-left:1px solid var(--gb-border); padding-left:1rem;">
     <button type="button" class="secondary" disabled title="agente offline — ações indisponíveis até reconectar">Apagar</button>
     </span>
     {{end}}
@@ -479,6 +549,8 @@ tr.gb-row-offline td { color:#6d7280; }
 <tr><td colspan="5">nenhuma tarefa criada ainda em nenhum servidor</td></tr>
 {{end}}
 </table>
+</div>
+</div>
 </body>
 </html>`))
 
@@ -721,28 +793,25 @@ var renameAgentTmpl = template.Must(template.New("rename-agent").Parse(`<!doctyp
 <head>
 <meta charset="utf-8">
 <title>GoBackup Central — Renomear agente</title>
-<style>
-body { font-family: sans-serif; margin: 2rem; background:#111; color:#eee; }
-a { color:#9ad1ff; }
+<style>` + gbCentralCSS + `
 form { max-width:420px; }
-input[type=text] {
-  background:#1b1b22; border:1px solid #444; color:#eee; border-radius:4px; padding:0.45rem 0.6rem; width:100%; margin:0.4rem 0 1.2rem; box-sizing:border-box; font-size:1rem;
-}
-input:focus { outline:none; border-color:#2d6cdf; }
-button { background:#2d6cdf; color:#fff; border:none; padding:0.45rem 1.1rem; cursor:pointer; border-radius:4px; font-size:0.95rem; }
-button:hover { background:#3a7ef0; }
-label { display:block; color:#9aa0ab; font-size:0.85rem; text-transform:uppercase; letter-spacing:0.04em; }
 </style>
 </head>
 <body>
+<nav><a href="/">GoBackup Central</a></nav>
+<div id="gb-content">
 <h1>Renomear agente</h1>
+<fieldset>
 <form method="post" action="/agents/{{.AgentID}}/rename">
   <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-  <label for="name">Nome de exibição</label>
-  <input type="text" id="name" name="name" value="{{.CurrentName}}" required autofocus>
-  <div><button type="submit">Salvar</button></div>
+  <div>Nome de exibição
+    <input type="text" id="name" name="name" value="{{.CurrentName}}" required autofocus>
+  </div>
+  <button type="submit">Salvar</button>
 </form>
-<p style="margin-top:1.5rem;"><a href="/">&larr; voltar ao dashboard</a></p>
+</fieldset>
+<p><a href="/">&larr; voltar ao dashboard</a></p>
+</div>
 </body>
 </html>`))
 
