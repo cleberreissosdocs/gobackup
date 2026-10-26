@@ -339,11 +339,12 @@ func generateToken() (string, error) {
 
 // RemoteJobInfo is one job entry as reported by an agent's heartbeat.
 type RemoteJobInfo struct {
-	JobID   string
-	Name    string
-	Kind    string
-	Cron    string
-	Enabled bool
+	JobID      string
+	Name       string
+	Kind       string
+	Cron       string
+	Enabled    bool
+	LastStatus string
 }
 
 // ReplaceAgentJobsSnapshot overwrites the cached job list for one agent.
@@ -362,8 +363,8 @@ func (s *Store) ReplaceAgentJobsSnapshot(ctx context.Context, agentID uuid.UUID,
 	}
 	for _, j := range jobs {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO agent_jobs_cache (agent_id, job_id, name, kind, cron, enabled) VALUES ($1, $2, $3, $4, $5, $6)
-		`, agentID, j.JobID, j.Name, j.Kind, j.Cron, j.Enabled); err != nil {
+			INSERT INTO agent_jobs_cache (agent_id, job_id, name, kind, cron, enabled, last_status) VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`, agentID, j.JobID, j.Name, j.Kind, j.Cron, j.Enabled, j.LastStatus); err != nil {
 			return fmt.Errorf("replace agent jobs snapshot: insert: %w", err)
 		}
 	}
@@ -371,6 +372,31 @@ func (s *Store) ReplaceAgentJobsSnapshot(ctx context.Context, agentID uuid.UUID,
 		return fmt.Errorf("replace agent jobs snapshot: commit: %w", err)
 	}
 	return nil
+}
+
+// GetAgentsHealth returns, for every agent that has at least one cached
+// job, whether ANY of its jobs' most recent execution failed. An agent
+// absent from the map has no job data yet (dashboard treats that as
+// healthy/unknown — green). It goes back to green as soon as every job's
+// latest execution is no longer "failed" (e.g. the next successful run).
+func (s *Store) GetAgentsHealth(ctx context.Context) (map[uuid.UUID]bool, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT agent_id, bool_or(last_status = 'failed') FROM agent_jobs_cache GROUP BY agent_id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("get agents health: %w", err)
+	}
+	defer rows.Close()
+	out := map[uuid.UUID]bool{}
+	for rows.Next() {
+		var id uuid.UUID
+		var hasFailure bool
+		if err := rows.Scan(&id, &hasFailure); err != nil {
+			return nil, err
+		}
+		out[id] = hasFailure
+	}
+	return out, rows.Err()
 }
 
 // AllAgentsJobRow is one row of the dashboard's combined jobs table.

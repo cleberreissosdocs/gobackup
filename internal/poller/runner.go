@@ -93,7 +93,7 @@ func (r *Runner) Run(ctx context.Context, interval time.Duration) {
 			jobs, _ := r.Store.ListJobs(ctx, r.AgentID)
 			jobInfos := make([]JobInfo, 0, len(jobs))
 			for _, j := range jobs {
-				jobInfos = append(jobInfos, JobInfo{ID: j.ID.String(), Name: j.Name, Kind: j.Kind, Cron: j.Cron, Enabled: j.Enabled})
+				jobInfos = append(jobInfos, JobInfo{ID: j.ID.String(), Name: j.Name, Kind: j.Kind, Cron: j.Cron, Enabled: j.Enabled, LastStatus: j.LastStatus})
 			}
 
 			running := make([]RunningInfo, 0)

@@ -176,18 +176,29 @@ func (s *Store) CreateDatabaseJob(ctx context.Context, tenantID, agentID, dbConn
 
 // JobSummary is a lightweight row for the "Tarefas" list.
 type JobSummary struct {
-	ID        uuid.UUID
-	Name      string
-	Kind      string // files|database
-	Cron      string
-	Enabled   bool
-	CreatedAt time.Time
+	ID         uuid.UUID
+	Name       string
+	Kind       string // files|database
+	Cron       string
+	Enabled    bool
+	LastStatus string // success|failed|running|"" (never run)
+	CreatedAt  time.Time
 }
 
-// ListJobs returns every backup job defined for an agent, newest first.
+// ListJobs returns every backup job defined for an agent, newest first,
+// including each job's most recent execution status (LastStatus) — used
+// both for the UI and piggybacked onto the heartbeat so the Central can
+// show a per-agent health indicator without a live round trip.
 func (s *Store) ListJobs(ctx context.Context, agentID uuid.UUID) ([]JobSummary, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT id, name, job_kind, schedule_cron, enabled, created_at FROM backup_jobs WHERE agent_id=$1 ORDER BY created_at DESC
+		SELECT bj.id, bj.name, bj.job_kind, bj.schedule_cron, bj.enabled, bj.created_at,
+		       COALESCE(je.status, '') AS last_status
+		FROM backup_jobs bj
+		LEFT JOIN LATERAL (
+			SELECT status FROM job_executions WHERE job_id = bj.id ORDER BY started_at DESC NULLS LAST LIMIT 1
+		) je ON true
+		WHERE bj.agent_id=$1
+		ORDER BY bj.created_at DESC
 	`, agentID)
 	if err != nil {
 		return nil, fmt.Errorf("list jobs: %w", err)
@@ -196,7 +207,7 @@ func (s *Store) ListJobs(ctx context.Context, agentID uuid.UUID) ([]JobSummary, 
 	var out []JobSummary
 	for rows.Next() {
 		var j JobSummary
-		if err := rows.Scan(&j.ID, &j.Name, &j.Kind, &j.Cron, &j.Enabled, &j.CreatedAt); err != nil {
+		if err := rows.Scan(&j.ID, &j.Name, &j.Kind, &j.Cron, &j.Enabled, &j.CreatedAt, &j.LastStatus); err != nil {
 			return nil, err
 		}
 		out = append(out, j)

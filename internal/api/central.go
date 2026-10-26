@@ -113,11 +113,12 @@ type commandResultDTO struct {
 }
 
 type jobInfoDTO struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Kind    string `json:"kind"`
-	Cron    string `json:"cron"`
-	Enabled bool   `json:"enabled"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Kind       string `json:"kind"`
+	Cron       string `json:"cron"`
+	Enabled    bool   `json:"enabled"`
+	LastStatus string `json:"last_status"`
 }
 
 type runningInfoDTO struct {
@@ -163,7 +164,7 @@ func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
 
 	jobSnapshot := make([]db.RemoteJobInfo, 0, len(req.Jobs))
 	for _, j := range req.Jobs {
-		jobSnapshot = append(jobSnapshot, db.RemoteJobInfo{JobID: j.ID, Name: j.Name, Kind: j.Kind, Cron: j.Cron, Enabled: j.Enabled})
+		jobSnapshot = append(jobSnapshot, db.RemoteJobInfo{JobID: j.ID, Name: j.Name, Kind: j.Kind, Cron: j.Cron, Enabled: j.Enabled, LastStatus: j.LastStatus})
 	}
 	if err := s.Store.ReplaceAgentJobsSnapshot(ctx, agentID, jobSnapshot); err != nil {
 		log.Println("poll: replace jobs snapshot:", err) // non-fatal: dashboard just shows a stale list
@@ -387,13 +388,14 @@ button.secondary:hover { background:#a83a3a; }
 <form class="logout" method="post" action="/logout"><button type="submit">Sair</button></form></nav>
 <h1>GoBackup Central — status dos servidores</h1>
 <table>
-<tr><th>Agente</th><th>Hostname</th><th>Status</th><th>Último heartbeat</th><th></th></tr>
+<tr><th>Agente</th><th>Hostname</th><th>Status</th><th>Último heartbeat</th><th>Saúde</th><th></th></tr>
 {{range .Agents}}
 <tr>
   <td>{{.Name}}</td>
   <td>{{.Hostname}}</td>
   <td class="{{.Status}}">{{.Status}}</td>
   <td>{{.LastSeen}}</td>
+  <td>{{if .HasFailure}}<span style="color:#f44336; font-size:1.4rem;" title="alguma tarefa deste agente falhou na última execução">&#9679;</span>{{else}}<span style="color:#4caf50; font-size:1.4rem;" title="nenhuma falha nas últimas execuções">&#9679;</span>{{end}}</td>
   <td>
     <a href="/agents/{{.ID}}/">administrar</a>
     <form method="post" action="/agents/{{.ID}}/delete" style="display:inline" onsubmit="return confirm('Apagar o agente \'{{.Name}}\' do Central? O agente continua rodando no servidor dele, mas some deste painel e precisa ser registrado de novo (tela Configurações do agente) para reaparecer.');">
@@ -403,7 +405,7 @@ button.secondary:hover { background:#a83a3a; }
   </td>
 </tr>
 {{else}}
-<tr><td colspan="5">nenhum agente cadastrado ainda</td></tr>
+<tr><td colspan="6">nenhum agente cadastrado ainda</td></tr>
 {{end}}
 </table>
 
@@ -433,11 +435,12 @@ button.secondary:hover { background:#a83a3a; }
 </html>`))
 
 type dashboardAgentView struct {
-	ID       string
-	Name     string
-	Hostname string
-	Status   string
-	LastSeen string
+	ID         string
+	Name       string
+	Hostname   string
+	Status     string
+	LastSeen   string
+	HasFailure bool
 }
 
 type dashboardJobView struct {
@@ -459,6 +462,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	health, err := s.Store.GetAgentsHealth(ctx)
+	if err != nil {
+		log.Println("dashboard: get agents health:", err) // non-fatal: everyone shows green
+	}
+
 	views := make([]dashboardAgentView, 0, len(agents))
 	for _, a := range agents {
 		lastSeen := "nunca"
@@ -466,11 +474,12 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			lastSeen = fmt.Sprintf("%s (%s atrás)", a.LastSeenAt.Local().Format("2006-01-02 15:04:05"), time.Since(*a.LastSeenAt).Round(time.Second))
 		}
 		views = append(views, dashboardAgentView{
-			ID:       a.ID.String(),
-			Name:     a.Name,
-			Hostname: a.Hostname,
-			Status:   a.Status,
-			LastSeen: lastSeen,
+			ID:         a.ID.String(),
+			Name:       a.Name,
+			Hostname:   a.Hostname,
+			Status:     a.Status,
+			LastSeen:   lastSeen,
+			HasFailure: health[a.ID],
 		})
 	}
 

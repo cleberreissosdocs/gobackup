@@ -235,7 +235,7 @@ func cmdHeartbeat(args []string) {
 		jobs, _ := store.ListJobs(ctx, agentID)
 		jobInfos := make([]poller.JobInfo, 0, len(jobs))
 		for _, j := range jobs {
-			jobInfos = append(jobInfos, poller.JobInfo{ID: j.ID.String(), Name: j.Name, Kind: j.Kind, Cron: j.Cron, Enabled: j.Enabled})
+			jobInfos = append(jobInfos, poller.JobInfo{ID: j.ID.String(), Name: j.Name, Kind: j.Kind, Cron: j.Cron, Enabled: j.Enabled, LastStatus: j.LastStatus})
 		}
 		running := make([]poller.RunningInfo, 0)
 		for jobID, s := range progressRegistry.Snapshot() {

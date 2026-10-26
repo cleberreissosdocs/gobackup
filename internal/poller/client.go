@@ -103,13 +103,15 @@ type PollResponse struct {
 
 // JobInfo is one locally-defined job summary piggybacked onto every
 // heartbeat, so the Central can show a combined "Tarefas de todos os
-// servidores" table without a live remote round trip per agent.
+// servidores" table (and a per-agent health indicator) without a live
+// remote round trip per agent.
 type JobInfo struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Kind    string `json:"kind"`
-	Cron    string `json:"cron"`
-	Enabled bool   `json:"enabled"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Kind       string `json:"kind"`
+	Cron       string `json:"cron"`
+	Enabled    bool   `json:"enabled"`
+	LastStatus string `json:"last_status"`
 }
 
 // RunningInfo is one job's current/just-finished execution progress,
