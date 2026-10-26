@@ -13,12 +13,14 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"time"
 
 	"github.com/cleber/gobackup/internal/backup"
 	"github.com/cleber/gobackup/internal/core"
 	"github.com/cleber/gobackup/internal/db"
+	"github.com/cleber/gobackup/internal/poller"
 )
 
 func main() {
@@ -32,6 +34,10 @@ func main() {
 		cmdMigrate(os.Args[2:])
 	case "run":
 		cmdRun(os.Args[2:])
+	case "register":
+		cmdRegister(os.Args[2:])
+	case "heartbeat":
+		cmdHeartbeat(os.Args[2:])
 	default:
 		usage()
 		os.Exit(1)
@@ -122,4 +128,77 @@ func cmdRun(args []string) {
 func fatal(msg string) {
 	fmt.Fprintln(os.Stderr, "error:", msg)
 	os.Exit(1)
+}
+
+func cmdRegister(args []string) {
+	fs := flag.NewFlagSet("register", flag.ExitOnError)
+	central := fs.String("central", "", "Central base URL, e.g. http://host:8080")
+	name := fs.String("name", "", "agent display name")
+	tokenFile := fs.String("token-file", "/etc/gobackup/agent-token", "where to save the issued token")
+	fs.Parse(args)
+
+	if *central == "" || *name == "" {
+		fatal("missing required flags: -central -name")
+	}
+
+	hostname, _ := os.Hostname()
+	res, err := poller.Register(*central, *name, hostname)
+	if err != nil {
+		fatal(err.Error())
+	}
+
+	if err := os.MkdirAll(dirOf(*tokenFile), 0o700); err != nil {
+		fatal(fmt.Sprintf("create token dir: %v", err))
+	}
+	if err := os.WriteFile(*tokenFile, []byte(res.Token), 0o600); err != nil {
+		fatal(fmt.Sprintf("write token file: %v", err))
+	}
+
+	fmt.Printf("registered agent_id=%s, token saved to %s\n", res.AgentID, *tokenFile)
+}
+
+func cmdHeartbeat(args []string) {
+	fs := flag.NewFlagSet("heartbeat", flag.ExitOnError)
+	central := fs.String("central", "", "Central base URL, e.g. http://host:8080")
+	tokenFile := fs.String("token-file", "/etc/gobackup/agent-token", "file containing the agent token")
+	interval := fs.Duration("interval", 15*time.Second, "polling interval")
+	once := fs.Bool("once", false, "send a single heartbeat and exit (for testing)")
+	fs.Parse(args)
+
+	if *central == "" {
+		fatal("missing -central")
+	}
+
+	tokenBytes, err := os.ReadFile(*tokenFile)
+	if err != nil {
+		fatal(fmt.Sprintf("read token file: %v", err))
+	}
+	client := poller.NewClient(*central, string(tokenBytes))
+
+	beat := func() {
+		if _, err := client.Poll("idle"); err != nil {
+			log.Println("heartbeat error:", err)
+			return
+		}
+		log.Println("heartbeat OK")
+	}
+
+	beat()
+	if *once {
+		return
+	}
+	ticker := time.NewTicker(*interval)
+	defer ticker.Stop()
+	for range ticker.C {
+		beat()
+	}
+}
+
+func dirOf(path string) string {
+	for i := len(path) - 1; i >= 0; i-- {
+		if path[i] == '/' {
+			return path[:i]
+		}
+	}
+	return "."
 }
