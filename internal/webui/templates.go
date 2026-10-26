@@ -412,6 +412,17 @@ function gbToggleDBFields(select) {
   form.querySelectorAll('.gb-db-sqlite').forEach(function(el) { el.style.display = isSQLite ? 'flex' : 'none'; });
 }
 document.querySelectorAll('.gb-db-engine').forEach(function(sel) { gbToggleDBFields(sel); });
+
+// --- Destination type: SSH host/port/user/key only matter when "Tipo de
+// destino" is SSH remoto — for Local or NAS (montado) it's just a path on
+// this machine, so hide the SSH-only fields to avoid clutter/confusion.
+function gbToggleSSHFields(select) {
+  var form = select.closest('form');
+  if (!form) return;
+  var isSSH = select.value === 'ssh';
+  form.querySelectorAll('.gb-dest-ssh').forEach(function(el) { el.style.display = isSSH ? 'flex' : 'none'; });
+}
+document.querySelectorAll('.gb-dest-type').forEach(function(sel) { gbToggleSSHFields(sel); });
 </script>
 </body>
 </html>`))
@@ -481,16 +492,16 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
     </div>
   </div>
   <div>Tipo de destino:
-    <select name="dest_type">
+    <select name="dest_type" class="gb-dest-type" onchange="gbToggleSSHFields(this)">
       <option value="local">Local</option>
       <option value="nas">NAS (montado)</option>
       <option value="ssh">SSH remoto</option>
     </select>
   </div>
-  <div>SSH host: <input type="text" name="ssh_host"></div>
-  <div>SSH porta: <input type="number" name="ssh_port" value="22"></div>
-  <div>SSH usuário: <input type="text" name="ssh_user"></div>
-  <div>SSH chave privada (caminho no agente):
+  <div class="gb-dest-ssh">SSH host: <input type="text" name="ssh_host"></div>
+  <div class="gb-dest-ssh">SSH porta: <input type="number" name="ssh_port" value="22"></div>
+  <div class="gb-dest-ssh">SSH usuário: <input type="text" name="ssh_user"></div>
+  <div class="gb-dest-ssh">SSH chave privada (caminho no agente):
     <div class="gb-path-row">
       <input type="text" id="file_sshkey" name="ssh_key">
       <button type="button" class="secondary" onclick="gbOpenPicker('file_sshkey','{{.Base}}')">Escolher arquivo…</button>
@@ -543,16 +554,16 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
     </div>
   </div>
   <div>Tipo de destino:
-    <select name="dest_type">
+    <select name="dest_type" class="gb-dest-type" onchange="gbToggleSSHFields(this)">
       <option value="local">Local</option>
       <option value="nas">NAS (montado)</option>
       <option value="ssh">SSH remoto</option>
     </select>
   </div>
-  <div>SSH host: <input type="text" name="ssh_host"></div>
-  <div>SSH porta: <input type="number" name="ssh_port" value="22"></div>
-  <div>SSH usuário: <input type="text" name="ssh_user"></div>
-  <div>SSH chave privada (caminho no agente):
+  <div class="gb-dest-ssh">SSH host: <input type="text" name="ssh_host"></div>
+  <div class="gb-dest-ssh">SSH porta: <input type="number" name="ssh_port" value="22"></div>
+  <div class="gb-dest-ssh">SSH usuário: <input type="text" name="ssh_user"></div>
+  <div class="gb-dest-ssh">SSH chave privada (caminho no agente):
     <div class="gb-path-row">
       <input type="text" id="db_sshkey" name="ssh_key">
       <button type="button" class="secondary" onclick="gbOpenPicker('db_sshkey','{{.Base}}')">Escolher arquivo…</button>
@@ -667,16 +678,16 @@ var editFileTmpl = template.Must(template.New("edit-file").Funcs(funcs).Parse(`
     </div>
   </div>
   <div>Tipo de destino:
-    <select name="dest_type">
+    <select name="dest_type" class="gb-dest-type" onchange="gbToggleSSHFields(this)">
       <option value="local" {{if eq .Job.DestType "local"}}selected{{end}}>Local</option>
       <option value="nas" {{if eq .Job.DestType "nas"}}selected{{end}}>NAS (montado)</option>
       <option value="ssh" {{if eq .Job.DestType "ssh"}}selected{{end}}>SSH remoto</option>
     </select>
   </div>
-  <div>SSH host: <input type="text" name="ssh_host" value="{{.Job.SSHHost}}"></div>
-  <div>SSH porta: <input type="number" name="ssh_port" value="{{.Job.SSHPort}}"></div>
-  <div>SSH usuário: <input type="text" name="ssh_user" value="{{.Job.SSHUser}}"></div>
-  <div>SSH chave privada (caminho no agente):
+  <div class="gb-dest-ssh">SSH host: <input type="text" name="ssh_host" value="{{.Job.SSHHost}}"></div>
+  <div class="gb-dest-ssh">SSH porta: <input type="number" name="ssh_port" value="{{.Job.SSHPort}}"></div>
+  <div class="gb-dest-ssh">SSH usuário: <input type="text" name="ssh_user" value="{{.Job.SSHUser}}"></div>
+  <div class="gb-dest-ssh">SSH chave privada (caminho no agente):
     <div class="gb-path-row">
       <input type="text" id="efile_sshkey" name="ssh_key" value="{{.Job.SSHKey}}">
       <button type="button" class="secondary" onclick="gbOpenPicker('efile_sshkey','{{.Base}}')">Escolher arquivo…</button>
@@ -731,16 +742,16 @@ var editDBTmpl = template.Must(template.New("edit-db").Funcs(funcs).Parse(`
     </div>
   </div>
   <div>Tipo de destino:
-    <select name="dest_type">
+    <select name="dest_type" class="gb-dest-type" onchange="gbToggleSSHFields(this)">
       <option value="local" {{if eq .Job.DestType "local"}}selected{{end}}>Local</option>
       <option value="nas" {{if eq .Job.DestType "nas"}}selected{{end}}>NAS (montado)</option>
       <option value="ssh" {{if eq .Job.DestType "ssh"}}selected{{end}}>SSH remoto</option>
     </select>
   </div>
-  <div>SSH host: <input type="text" name="ssh_host" value="{{.Job.SSHHost}}"></div>
-  <div>SSH porta: <input type="number" name="ssh_port" value="{{.Job.SSHPort}}"></div>
-  <div>SSH usuário: <input type="text" name="ssh_user" value="{{.Job.SSHUser}}"></div>
-  <div>SSH chave privada (caminho no agente):
+  <div class="gb-dest-ssh">SSH host: <input type="text" name="ssh_host" value="{{.Job.SSHHost}}"></div>
+  <div class="gb-dest-ssh">SSH porta: <input type="number" name="ssh_port" value="{{.Job.SSHPort}}"></div>
+  <div class="gb-dest-ssh">SSH usuário: <input type="text" name="ssh_user" value="{{.Job.SSHUser}}"></div>
+  <div class="gb-dest-ssh">SSH chave privada (caminho no agente):
     <div class="gb-path-row">
       <input type="text" id="edb_sshkey" name="ssh_key" value="{{.Job.SSHKey}}">
       <button type="button" class="secondary" onclick="gbOpenPicker('edb_sshkey','{{.Base}}')">Escolher arquivo…</button>
