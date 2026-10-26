@@ -142,15 +142,15 @@ type User struct {
 }
 
 type Agent struct {
-	ID            uuid.UUID
-	TenantID      uuid.UUID
-	Name          string
-	Hostname      string
-	APITokenHash  string
-	Status        AgentStatus
-	LastSeenAt    *time.Time
-	AgentVersion  string
-	CreatedAt     time.Time
+	ID           uuid.UUID
+	TenantID     uuid.UUID
+	Name         string
+	Hostname     string
+	APITokenHash string
+	Status       AgentStatus
+	LastSeenAt   *time.Time
+	AgentVersion string
+	CreatedAt    time.Time
 }
 
 type Destination struct {
@@ -202,28 +202,28 @@ type BackupJob struct {
 	BackupType    BackupType
 
 	// JobKindDatabase
-	DBConnectionID     *uuid.UUID
-	DumpDestinationID  *uuid.UUID
-	Compression        Compression
+	DBConnectionID    *uuid.UUID
+	DumpDestinationID *uuid.UUID
+	Compression       Compression
 
-	ScheduleCron     string
-	RetentionPolicy  RetentionPolicy
-	Enabled          bool
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ScheduleCron    string
+	RetentionPolicy RetentionPolicy
+	Enabled         bool
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 type JobExecution struct {
-	ID                uuid.UUID
-	JobID             uuid.UUID
-	Status            ExecutionStatus
-	Trigger           ExecutionTrigger
-	StartedAt         *time.Time
-	FinishedAt        *time.Time
-	BytesTransferred  int64
-	FilesTransferred  int64
-	ErrorMessage      string
-	LogRef            string
+	ID               uuid.UUID
+	JobID            uuid.UUID
+	Status           ExecutionStatus
+	Trigger          ExecutionTrigger
+	StartedAt        *time.Time
+	FinishedAt       *time.Time
+	BytesTransferred int64
+	FilesTransferred int64
+	ErrorMessage     string
+	LogRef           string
 }
 
 type AgentCommand struct {

@@ -84,7 +84,7 @@ type commandResultDTO struct {
 }
 
 type pollRequest struct {
-	Status         string              `json:"status"`
+	Status         string             `json:"status"`
 	CommandResults []commandResultDTO `json:"command_results"`
 }
 

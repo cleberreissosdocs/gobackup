@@ -20,6 +20,7 @@ import (
 	"github.com/cleber/gobackup/internal/backup"
 	"github.com/cleber/gobackup/internal/core"
 	"github.com/cleber/gobackup/internal/db"
+	"github.com/cleber/gobackup/internal/dbjob"
 	"github.com/cleber/gobackup/internal/poller"
 )
 
@@ -38,6 +39,8 @@ func main() {
 		cmdRegister(os.Args[2:])
 	case "heartbeat":
 		cmdHeartbeat(os.Args[2:])
+	case "run-db":
+		cmdRunDB(os.Args[2:])
 	default:
 		usage()
 		os.Exit(1)
@@ -263,4 +266,105 @@ func buildDestination(destType, path, sshHost string, sshPort int, sshUser, sshK
 	default:
 		return backup.Destination{}, fmt.Errorf("invalid -dest-type: %s", destType)
 	}
+}
+
+func cmdRunDB(args []string) {
+	fs := flag.NewFlagSet("run-db", flag.ExitOnError)
+	connString := fs.String("db", "", "agent's local Postgres connection string")
+	name := fs.String("name", "", "job name")
+	engine := fs.String("engine", "", "mariadb|mysql|postgresql|sqlite")
+	host := fs.String("host", "", "database host (not used for sqlite)")
+	port := fs.Int("port", 0, "database port (not used for sqlite)")
+	user := fs.String("user", "", "database username (not used for sqlite)")
+	password := fs.String("password", "", "database password (not used for sqlite); prefer GOBACKUP_DB_PASSWORD env var")
+	database := fs.String("database", "", "database name, or __ALL__ for every database (not used for sqlite)")
+	sqlitePath := fs.String("sqlite-path", "", "path to the .sqlite/.db file (engine=sqlite only)")
+	compression := fs.String("compression", "gzip", "gzip|zip|none")
+	dest := fs.String("dest", "", "directory to write the dump into")
+	destType := fs.String("dest-type", "local", "local|nas|ssh")
+	sshHost := fs.String("ssh-host", "", "ssh destination host (dest-type=ssh)")
+	sshPort := fs.Int("ssh-port", 22, "ssh destination port (dest-type=ssh)")
+	sshUser := fs.String("ssh-user", "", "ssh destination user (dest-type=ssh)")
+	sshKey := fs.String("ssh-key", "", "ssh private key path (dest-type=ssh)")
+	fs.Parse(args)
+
+	if *connString == "" || *name == "" || *engine == "" || *dest == "" {
+		fatal("missing required flags: -db -name -engine -dest")
+	}
+	eng := core.DBEngine(*engine)
+	switch eng {
+	case core.EngineMariaDB, core.EngineMySQL, core.EnginePostgreSQL, core.EngineSQLite:
+	default:
+		fatal("invalid -engine: " + *engine)
+	}
+	if eng == core.EngineSQLite && *sqlitePath == "" {
+		fatal("engine=sqlite requires -sqlite-path")
+	}
+
+	pw := *password
+	if pw == "" {
+		pw = os.Getenv("GOBACKUP_DB_PASSWORD")
+	}
+
+	dbName := *database
+	if dbName == "" && eng != core.EngineSQLite {
+		dbName = core.AllDatabasesSentinel
+	}
+
+	ctx := context.Background()
+	store, err := db.Connect(ctx, *connString)
+	if err != nil {
+		fatal(err.Error())
+	}
+	defer store.Close()
+
+	hostname, _ := os.Hostname()
+	tenantID, agentID, err := store.EnsureDefaultTenantAndAgent(ctx, hostname)
+	if err != nil {
+		fatal(err.Error())
+	}
+
+	connID, err := store.CreateDBConnection(ctx, agentID, *name+"-connection", eng, *host, *port, *user, "", dbName, *sqlitePath)
+	if err != nil {
+		fatal(err.Error())
+	}
+	jobID, err := store.CreateDatabaseJob(ctx, tenantID, agentID, connID, *name, core.Compression(*compression), "")
+	if err != nil {
+		fatal(err.Error())
+	}
+	execID, err := store.StartExecution(ctx, jobID, core.TriggerManual)
+	if err != nil {
+		fatal(err.Error())
+	}
+
+	fmt.Printf("[execution %s] dumping %s database %q -> %s (%s)\n", execID, eng, dbName, *dest, *destType)
+	start := time.Now()
+	res, runErr := dbjob.Run(ctx, dbjob.Request{
+		Engine:      eng,
+		Host:        *host,
+		Port:        *port,
+		Username:    *user,
+		Password:    pw,
+		Database:    dbName,
+		SQLitePath:  *sqlitePath,
+		Compression: core.Compression(*compression),
+		DestType:    *destType,
+		DestPath:    *dest,
+		SSHHost:     *sshHost,
+		SSHPort:     *sshPort,
+		SSHUser:     *sshUser,
+		SSHKey:      *sshKey,
+	})
+	elapsed := time.Since(start)
+
+	if runErr != nil {
+		_ = store.FinishExecution(ctx, execID, core.ExecFailed, 0, 0, runErr.Error())
+		fatal(fmt.Sprintf("db dump failed after %s: %v", elapsed, runErr))
+	}
+
+	if err := store.FinishExecution(ctx, execID, core.ExecSuccess, res.BytesWritten, 1, ""); err != nil {
+		fatal(err.Error())
+	}
+
+	fmt.Printf("[execution %s] OK in %s — wrote %s (%d bytes)\n", execID, elapsed, res.DestPath, res.BytesWritten)
 }

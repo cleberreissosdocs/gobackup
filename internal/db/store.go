@@ -84,6 +84,43 @@ func (s *Store) CreateFileJob(ctx context.Context, tenantID, agentID uuid.UUID, 
 	return jobID, nil
 }
 
+// CreateDBConnection inserts (or reuses, by name) a db_connections row for
+// job_kind=database backups.
+func (s *Store) CreateDBConnection(ctx context.Context, agentID uuid.UUID, name string, engine core.DBEngine, host string, port int, username, passwordRef, databaseName, sqlitePath string) (uuid.UUID, error) {
+	var id uuid.UUID
+	err := s.Pool.QueryRow(ctx, `
+		INSERT INTO db_connections (agent_id, name, engine, host, port, username, password_ref, database_name, sqlite_path)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		ON CONFLICT DO NOTHING
+		RETURNING id
+	`, agentID, name, string(engine), host, port, username, passwordRef, databaseName, sqlitePath).Scan(&id)
+	if err != nil {
+		err = s.Pool.QueryRow(ctx, `SELECT id FROM db_connections WHERE agent_id=$1 AND name=$2`, agentID, name).Scan(&id)
+		if err != nil {
+			return uuid.Nil, fmt.Errorf("create db connection: %w", err)
+		}
+	}
+	return id, nil
+}
+
+// CreateDatabaseJob inserts (or reuses, by name) a job_kind=database backup job.
+func (s *Store) CreateDatabaseJob(ctx context.Context, tenantID, agentID, dbConnectionID uuid.UUID, name string, compression core.Compression, cron string) (uuid.UUID, error) {
+	var jobID uuid.UUID
+	err := s.Pool.QueryRow(ctx, `
+		INSERT INTO backup_jobs (tenant_id, agent_id, name, job_kind, db_connection_id, compression, schedule_cron, enabled)
+		VALUES ($1, $2, $3, 'database', $4, $5, $6, true)
+		ON CONFLICT DO NOTHING
+		RETURNING id
+	`, tenantID, agentID, name, dbConnectionID, string(compression), cron).Scan(&jobID)
+	if err != nil {
+		err = s.Pool.QueryRow(ctx, `SELECT id FROM backup_jobs WHERE agent_id=$1 AND name=$2`, agentID, name).Scan(&jobID)
+		if err != nil {
+			return uuid.Nil, fmt.Errorf("create database job: %w", err)
+		}
+	}
+	return jobID, nil
+}
+
 // StartExecution records a new running execution for a job.
 func (s *Store) StartExecution(ctx context.Context, jobID uuid.UUID, trigger core.ExecutionTrigger) (uuid.UUID, error) {
 	var execID uuid.UUID
