@@ -167,6 +167,37 @@ func shortenError(msg string) string {
 	return msg
 }
 
+// humanizeErrorReason recognizes the most common low-level failure
+// patterns (rsync/dump/ssh output) and returns a short plain-Portuguese
+// explanation instead of the raw technical message. Falls back to a
+// shortened version of the original message when nothing matches, so
+// nothing is ever silently hidden — just made more readable when possible.
+func humanizeErrorReason(msg string) string {
+	lower := strings.ToLower(msg)
+	switch {
+	case strings.Contains(lower, "no such file or directory"):
+		return "caminho de origem ou destino não encontrado"
+	case strings.Contains(lower, "permission denied"):
+		return "permissão negada ao acessar o caminho"
+	case strings.Contains(lower, "connection refused"):
+		return "não foi possível conectar ao destino (conexão recusada)"
+	case strings.Contains(lower, "connection timed out"), strings.Contains(lower, "operation timed out"):
+		return "não foi possível conectar ao destino (tempo esgotado)"
+	case strings.Contains(lower, "no route to host"):
+		return "não foi possível conectar ao destino (host inacessível)"
+	case strings.Contains(lower, "authentication failed"), strings.Contains(lower, "password authentication failed"):
+		return "usuário ou senha incorretos"
+	case strings.Contains(lower, "could not translate host name"), strings.Contains(lower, "name or service not known"):
+		return "endereço do servidor não encontrado"
+	case strings.Contains(lower, "no space left on device"):
+		return "sem espaço em disco no destino"
+	case strings.Contains(lower, "host key verification failed"):
+		return "chave SSH do host de destino não reconhecida"
+	default:
+		return shortenError(msg)
+	}
+}
+
 // humanizeExecution turns one job execution into a plain sentence instead
 // of a raw "jobname (trigger): <huge technical dump>" string.
 func humanizeExecution(jobName, status, trigger, errMsg string) string {
@@ -179,7 +210,7 @@ func humanizeExecution(jobName, status, trigger, errMsg string) string {
 	case "cancelled":
 		return fmt.Sprintf("Backup \"%s\" cancelado (%s)", jobName, trig)
 	case "failed":
-		if reason := shortenError(errMsg); reason != "" {
+		if reason := humanizeErrorReason(errMsg); reason != "" {
 			return fmt.Sprintf("Backup \"%s\" falhou (%s): %s", jobName, trig, reason)
 		}
 		return fmt.Sprintf("Backup \"%s\" falhou (%s)", jobName, trig)

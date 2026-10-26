@@ -343,7 +343,7 @@ func (r *CentralRunner) RecentActivity(ctx context.Context, limit int) ([]Activi
 		desc := commandLabel(row.Type)
 		if row.Status == "failed" {
 			if errMsg, _ := row.Result["error"].(string); errMsg != "" {
-				desc += ": " + shortenError(errMsg)
+				desc += ": " + humanizeErrorReason(errMsg)
 			}
 		}
 		out = append(out, ActivityItem{
