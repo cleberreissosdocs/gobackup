@@ -340,9 +340,15 @@ func (r *CentralRunner) RecentActivity(ctx context.Context, limit int) ([]Activi
 	}
 	out := make([]ActivityItem, 0, len(rows))
 	for _, row := range rows {
+		desc := commandLabel(row.Type)
+		if row.Status == "failed" {
+			if errMsg, _ := row.Result["error"].(string); errMsg != "" {
+				desc += ": " + shortenError(errMsg)
+			}
+		}
 		out = append(out, ActivityItem{
 			When:        row.CreatedAt,
-			Description: fmt.Sprintf("%s: %s", row.Type, formatResult(row.Result)),
+			Description: desc,
 			Status:      row.Status,
 		})
 	}

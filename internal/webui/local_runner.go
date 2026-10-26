@@ -215,13 +215,8 @@ func (r *LocalRunner) RecentActivity(ctx context.Context, limit int) ([]Activity
 	}
 	out := make([]ActivityItem, 0, len(rows))
 	for _, row := range rows {
-		status := row.Status
-		desc := fmt.Sprintf("%s (%s)", row.JobName, row.Trigger)
-		if row.ErrorMessage != "" {
-			desc += ": " + row.ErrorMessage
-		}
-		when := row.StartedAt
-		out = append(out, ActivityItem{When: when, Description: desc, Status: status})
+		desc := humanizeExecution(row.JobName, row.Status, row.Trigger, row.ErrorMessage)
+		out = append(out, ActivityItem{When: row.StartedAt, Description: desc, Status: row.Status})
 	}
 	return out, nil
 }

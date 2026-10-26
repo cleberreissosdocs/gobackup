@@ -8,6 +8,8 @@ package webui
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -131,4 +133,82 @@ type Runner interface {
 	JobStatus(ctx context.Context, jobID string) (ProgressInfo, error)
 
 	RecentActivity(ctx context.Context, limit int) ([]ActivityItem, error)
+}
+
+// triggerLabel maps a raw execution trigger to a short, human Portuguese
+// phrase for the "Atividade recente" list.
+func triggerLabel(trigger string) string {
+	switch trigger {
+	case "manual":
+		return "manual"
+	case "scheduled":
+		return "agendamento"
+	case "remote_central":
+		return "Central"
+	default:
+		return trigger
+	}
+}
+
+// shortenError trims a raw error (often multi-line and full of low-level
+// tool output, e.g. rsync's stats dump) down to one short, scannable line.
+func shortenError(msg string) string {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return ""
+	}
+	if i := strings.IndexByte(msg, '\n'); i >= 0 {
+		msg = strings.TrimSpace(msg[:i])
+	}
+	const maxLen = 140
+	if len(msg) > maxLen {
+		msg = strings.TrimSpace(msg[:maxLen]) + "…"
+	}
+	return msg
+}
+
+// humanizeExecution turns one job execution into a plain sentence instead
+// of a raw "jobname (trigger): <huge technical dump>" string.
+func humanizeExecution(jobName, status, trigger, errMsg string) string {
+	trig := triggerLabel(trigger)
+	switch status {
+	case "success":
+		return fmt.Sprintf("Backup \"%s\" concluído com sucesso (%s)", jobName, trig)
+	case "running":
+		return fmt.Sprintf("Backup \"%s\" em execução (%s)", jobName, trig)
+	case "cancelled":
+		return fmt.Sprintf("Backup \"%s\" cancelado (%s)", jobName, trig)
+	case "failed":
+		if reason := shortenError(errMsg); reason != "" {
+			return fmt.Sprintf("Backup \"%s\" falhou (%s): %s", jobName, trig, reason)
+		}
+		return fmt.Sprintf("Backup \"%s\" falhou (%s)", jobName, trig)
+	default:
+		return fmt.Sprintf("Backup \"%s\" (%s)", jobName, trig)
+	}
+}
+
+// commandLabel maps a raw Central->Agent command type to a short Portuguese
+// phrase, for the "Atividade recente" list shown when administering an
+// agent remotely (this log is the command/protocol history, since the
+// actual job_executions table lives on the agent's own database).
+func commandLabel(cmdType string) string {
+	switch cmdType {
+	case "create_job":
+		return "Tarefa criada"
+	case "update_job":
+		return "Tarefa atualizada"
+	case "delete_job":
+		return "Tarefa apagada"
+	case "run_job":
+		return "Execução solicitada"
+	case "list_jobs":
+		return "Lista de tarefas atualizada"
+	case "get_job":
+		return "Dados da tarefa consultados"
+	case "list_dir":
+		return "Diretório consultado"
+	default:
+		return cmdType
+	}
 }

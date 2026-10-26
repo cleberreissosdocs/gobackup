@@ -10,6 +10,29 @@ var funcs = template.FuncMap{
 		}
 		return ""
 	},
+	// statusLabel translates a raw execution/command status into plain
+	// Portuguese for display (the CSS class still uses the raw value, so
+	// colors stay consistent with the rest of the app).
+	"statusLabel": func(status string) string {
+		switch status {
+		case "success":
+			return "sucesso"
+		case "failed":
+			return "falhou"
+		case "running":
+			return "em execução"
+		case "cancelled":
+			return "cancelado"
+		case "pending":
+			return "pendente"
+		case "acked":
+			return "confirmado"
+		case "delivered":
+			return "entregue"
+		default:
+			return status
+		}
+	},
 	// scheduleBuilder renders the intuitive button-based scheduling widget
 	// (replaces a raw cron text box). prefix must be unique per form on the
 	// same page (e.g. "file", "db", "efile", "edb") so multiple instances
@@ -616,7 +639,7 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
 <tr>
   <td>{{fmtTime .When}}</td>
   <td>{{.Description}}</td>
-  <td class="status-{{.Status}}">{{.Status}}</td>
+  <td class="status-{{.Status}}">{{statusLabel .Status}}</td>
 </tr>
 {{else}}
 <tr><td colspan="3">nenhuma atividade ainda</td></tr>
