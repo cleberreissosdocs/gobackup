@@ -501,19 +501,6 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
       <button type="button" class="secondary" onclick="gbOpenPicker('file_dest','{{.Base}}')">Escolher diretório…</button>
     </div>
   </div>
-  <div>Tipo de backup:
-    <select name="backup_type">
-      <option value="full">Completo</option>
-      <option value="incremental">Incremental</option>
-      <option value="differential">Diferencial</option>
-    </select>
-  </div>
-  <div>Baseline (--link-dest, p/ incremental/diferencial):
-    <div class="gb-path-row">
-      <input type="text" id="file_linkdest" name="link_dest">
-      <button type="button" class="secondary" onclick="gbOpenPicker('file_linkdest','{{.Base}}')">Escolher diretório…</button>
-    </div>
-  </div>
   <div>Tipo de destino:
     <select name="dest_type" class="gb-dest-type" onchange="gbToggleSSHFields(this)">
       <option value="local">Local</option>
@@ -685,19 +672,6 @@ var editFileTmpl = template.Must(template.New("edit-file").Funcs(funcs).Parse(`
     <div class="gb-path-row">
       <input type="text" id="efile_dest" name="dest" value="{{.Job.Dest}}" required>
       <button type="button" class="secondary" onclick="gbOpenPicker('efile_dest','{{.Base}}')">Escolher diretório…</button>
-    </div>
-  </div>
-  <div>Tipo de backup:
-    <select name="backup_type">
-      <option value="full" {{if eq .Job.BackupType "full"}}selected{{end}}>Completo</option>
-      <option value="incremental" {{if eq .Job.BackupType "incremental"}}selected{{end}}>Incremental</option>
-      <option value="differential" {{if eq .Job.BackupType "differential"}}selected{{end}}>Diferencial</option>
-    </select>
-  </div>
-  <div>Baseline (--link-dest, p/ incremental/diferencial):
-    <div class="gb-path-row">
-      <input type="text" id="efile_linkdest" name="link_dest" value="{{.Job.LinkDest}}">
-      <button type="button" class="secondary" onclick="gbOpenPicker('efile_linkdest','{{.Base}}')">Escolher diretório…</button>
     </div>
   </div>
   <div>Tipo de destino:

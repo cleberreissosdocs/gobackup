@@ -146,11 +146,17 @@ func (s *Site) handleBrowseJSON(w http.ResponseWriter, r *http.Request) {
 
 func fileJobFromForm(r *http.Request) FileJobRequest {
 	req := FileJobRequest{
-		Name:       r.FormValue("name"),
-		Source:     r.FormValue("source"),
-		Dest:       r.FormValue("dest"),
-		BackupType: r.FormValue("backup_type"),
-		LinkDest:   r.FormValue("link_dest"),
+		Name:   r.FormValue("name"),
+		Source: r.FormValue("source"),
+		Dest:   r.FormValue("dest"),
+		// BackupType/LinkDest removed from the UI: with Dest always being
+		// the same continuously-mirrored path (no per-run snapshot dirs),
+		// --link-dest never had a real baseline to point at, so
+		// "incremental"/"differential" behaved identically to "full".
+		// Force "full" here so existing API/DB plumbing keeps working
+		// without a schema change.
+		BackupType: "full",
+		LinkDest:   "",
 		DestType:   r.FormValue("dest_type"),
 		SSHHost:    r.FormValue("ssh_host"),
 		SSHUser:    r.FormValue("ssh_user"),
