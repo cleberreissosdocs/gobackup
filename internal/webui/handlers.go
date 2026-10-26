@@ -32,8 +32,8 @@ func (s *Site) Mount(mux *http.ServeMux, prefix string) {
 
 	mux.HandleFunc("GET "+prefix+"/", s.Auth.RequireLogin(s.handleHome))
 	mux.HandleFunc("GET "+prefix+"/browse", s.Auth.RequireLogin(s.handleBrowse))
-	mux.HandleFunc("POST "+prefix+"/jobs/file", s.Auth.RequireLogin(s.handleCreateFileJob))
-	mux.HandleFunc("POST "+prefix+"/jobs/db", s.Auth.RequireLogin(s.handleCreateDBJob))
+	mux.HandleFunc("POST "+prefix+"/jobs/file", s.Auth.RequireLoginAndCSRF(s.handleCreateFileJob))
+	mux.HandleFunc("POST "+prefix+"/jobs/db", s.Auth.RequireLoginAndCSRF(s.handleCreateDBJob))
 }
 
 func (s *Site) handleLoginForm(w http.ResponseWriter, r *http.Request) {
@@ -44,8 +44,8 @@ func (s *Site) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	email := r.FormValue("email")
 	password := r.FormValue("password")
-	if err := s.Auth.Login(r.Context(), w, email, password); err != nil {
-		renderPage(w, "Login", "", loginTmpl, map[string]any{"Error": "credenciais inválidas"})
+	if err := s.Auth.Login(r.Context(), w, r, email, password); err != nil {
+		renderPage(w, "Login", "", loginTmpl, map[string]any{"Error": err.Error()})
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -70,6 +70,7 @@ func (s *Site) handleHome(w http.ResponseWriter, r *http.Request) {
 		"Name":     name,
 		"Base":     s.base(r),
 		"Activity": activity,
+		"CSRF":     s.Auth.CSRFToken(r),
 	})
 }
 

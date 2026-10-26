@@ -13,11 +13,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/cleber/gobackup/internal/api"
 	"github.com/cleber/gobackup/internal/core"
 	"github.com/cleber/gobackup/internal/db"
+	"github.com/cleber/gobackup/internal/tlsutil"
 	"github.com/cleber/gobackup/internal/webauth"
 )
 
@@ -61,7 +63,11 @@ func cmdMigrate(args []string) {
 func cmdServe(args []string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	connString := fs.String("db", "", "Postgres connection string")
-	addr := fs.String("addr", ":8080", "listen address")
+	addr := fs.String("addr", ":8443", "listen address")
+	tlsCert := fs.String("tls-cert", "", "TLS certificate path (auto-generated self-signed if omitted)")
+	tlsKey := fs.String("tls-key", "", "TLS key path (auto-generated self-signed if omitted)")
+	tlsHosts := fs.String("tls-hosts", "localhost,127.0.0.1", "comma-separated hostnames/IPs for the self-signed cert's SAN (must include the IP agents will connect to)")
+	noTLS := fs.Bool("no-tls", false, "serve plain HTTP instead of HTTPS (NOT recommended)")
 	fs.Parse(args)
 
 	if *connString == "" {
@@ -77,8 +83,25 @@ func cmdServe(args []string) {
 	srv := api.NewServer(store)
 	go runOfflineChecker(context.Background(), store, srv)
 
-	log.Printf("gobackup-central listening on %s", *addr)
-	if err := http.ListenAndServe(*addr, srv.Mux); err != nil {
+	if *noTLS {
+		log.Printf("gobackup-central listening on %s (PLAIN HTTP — not recommended)", *addr)
+		if err := http.ListenAndServe(*addr, srv.Mux); err != nil {
+			fatal(err.Error())
+		}
+		return
+	}
+
+	cert, key := *tlsCert, *tlsKey
+	if cert == "" || key == "" {
+		cert, key = "gobackup-central-cert.pem", "gobackup-central-key.pem"
+		hosts := strings.Split(*tlsHosts, ",")
+		if err := tlsutil.EnsureCert(cert, key, hosts); err != nil {
+			fatal(fmt.Sprintf("generate self-signed cert: %v", err))
+		}
+		log.Printf("self-signed cert generated/reused for hosts %v — copy %s to each agent as -central-ca", hosts, cert)
+	}
+	log.Printf("gobackup-central listening on https://%s", *addr)
+	if err := http.ListenAndServeTLS(*addr, cert, key, srv.Mux); err != nil {
 		fatal(err.Error())
 	}
 }

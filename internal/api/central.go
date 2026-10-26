@@ -35,11 +35,11 @@ func NewServer(store *db.Store) *Server {
 func (s *Server) routes() {
 	s.Mux.HandleFunc("POST /api/v1/agents/register", s.handleRegister)
 	s.Mux.HandleFunc("POST /api/v1/agents/poll", s.handlePoll)
-	s.Mux.HandleFunc("POST /api/v1/agents/{id}/commands", s.handleEnqueueCommand)
-	s.Mux.HandleFunc("POST /api/v1/notification-channels", s.handleCreateNotificationChannel)
+	s.Mux.HandleFunc("POST /api/v1/agents/{id}/commands", s.Auth.RequireLogin(s.handleEnqueueCommand))
+	s.Mux.HandleFunc("POST /api/v1/notification-channels", s.Auth.RequireLogin(s.handleCreateNotificationChannel))
 	s.Mux.HandleFunc("GET /", s.Auth.RequireLogin(s.handleDashboard))
 	s.Mux.HandleFunc("GET /notifications", s.Auth.RequireLogin(s.handleNotificationsPage))
-	s.Mux.HandleFunc("POST /notifications", s.Auth.RequireLogin(s.handleNotificationsSubmit))
+	s.Mux.HandleFunc("POST /notifications", s.Auth.RequireLoginAndCSRF(s.handleNotificationsSubmit))
 	s.Mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
@@ -251,6 +251,7 @@ var notificationsTmpl = template.Must(template.New("notifications").Parse(`
 <h1>Canais de notificação</h1>
 {{if .Message}}<p>{{.Message}}</p>{{end}}
 <form method="post" action="/notifications">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
   <div>Tipo:
     <select name="type">
       <option value="email">E-mail</option>
@@ -278,7 +279,7 @@ var notificationsTmpl = template.Must(template.New("notifications").Parse(`
 
 func (s *Server) handleNotificationsPage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	notificationsTmpl.Execute(w, map[string]any{})
+	notificationsTmpl.Execute(w, map[string]any{"CSRF": s.Auth.CSRFToken(r)})
 }
 
 func (s *Server) handleNotificationsSubmit(w http.ResponseWriter, r *http.Request) {
@@ -322,7 +323,7 @@ func (s *Server) handleNotificationsSubmit(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	notificationsTmpl.Execute(w, map[string]any{"Message": "Canal adicionado com sucesso."})
+	notificationsTmpl.Execute(w, map[string]any{"Message": "Canal adicionado com sucesso.", "CSRF": s.Auth.CSRFToken(r)})
 }
 
 var dashboardTmpl = template.Must(template.New("dashboard").Parse(`<!doctype html>

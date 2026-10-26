@@ -23,6 +23,7 @@ import (
 	"github.com/cleber/gobackup/internal/db"
 	"github.com/cleber/gobackup/internal/dbjob"
 	"github.com/cleber/gobackup/internal/poller"
+	"github.com/cleber/gobackup/internal/tlsutil"
 	"github.com/cleber/gobackup/internal/webauth"
 	"github.com/cleber/gobackup/internal/webui"
 )
@@ -151,9 +152,10 @@ func fatal(msg string) {
 
 func cmdRegister(args []string) {
 	fs := flag.NewFlagSet("register", flag.ExitOnError)
-	central := fs.String("central", "", "Central base URL, e.g. http://host:8080")
+	central := fs.String("central", "", "Central base URL, e.g. https://host:8443")
 	name := fs.String("name", "", "agent display name")
 	tokenFile := fs.String("token-file", "/etc/gobackup/agent-token", "where to save the issued token")
+	centralCA := fs.String("central-ca", "", "path to the Central's TLS CA cert (pinned trust)")
 	fs.Parse(args)
 
 	if *central == "" || *name == "" {
@@ -161,7 +163,7 @@ func cmdRegister(args []string) {
 	}
 
 	hostname, _ := os.Hostname()
-	res, err := poller.Register(*central, *name, hostname)
+	res, err := poller.Register(*central, *name, hostname, *centralCA)
 	if err != nil {
 		fatal(err.Error())
 	}
@@ -178,11 +180,12 @@ func cmdRegister(args []string) {
 
 func cmdHeartbeat(args []string) {
 	fs := flag.NewFlagSet("heartbeat", flag.ExitOnError)
-	central := fs.String("central", "", "Central base URL, e.g. http://host:8080")
+	central := fs.String("central", "", "Central base URL, e.g. https://host:8443")
 	connString := fs.String("db", "", "agent's local Postgres connection string")
 	tokenFile := fs.String("token-file", "/etc/gobackup/agent-token", "file containing the agent token")
 	interval := fs.Duration("interval", 15*time.Second, "polling interval")
 	once := fs.Bool("once", false, "send a single heartbeat and exit (for testing)")
+	centralCA := fs.String("central-ca", "", "path to the Central's TLS CA cert (pinned trust)")
 	fs.Parse(args)
 
 	if *central == "" || *connString == "" {
@@ -193,7 +196,10 @@ func cmdHeartbeat(args []string) {
 	if err != nil {
 		fatal(fmt.Sprintf("read token file: %v", err))
 	}
-	client := poller.NewClient(*central, string(tokenBytes))
+	client, err := poller.NewClient(*central, string(tokenBytes), *centralCA)
+	if err != nil {
+		fatal(err.Error())
+	}
 
 	ctx := context.Background()
 	store, err := db.Connect(ctx, *connString)
@@ -380,6 +386,9 @@ func cmdServe(args []string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	connString := fs.String("db", "", "agent's local Postgres connection string")
 	addr := fs.String("addr", ":8081", "listen address for the local web UI")
+	tlsCert := fs.String("tls-cert", "", "TLS certificate path (auto-generated self-signed if omitted)")
+	tlsKey := fs.String("tls-key", "", "TLS key path (auto-generated self-signed if omitted)")
+	noTLS := fs.Bool("no-tls", false, "serve plain HTTP instead of HTTPS (NOT recommended)")
 	fs.Parse(args)
 
 	if *connString == "" {
@@ -411,8 +420,23 @@ func cmdServe(args []string) {
 	mux := http.NewServeMux()
 	site.Mount(mux, "")
 
-	log.Printf("gobackup-agent web UI listening on %s", *addr)
-	if err := http.ListenAndServe(*addr, mux); err != nil {
+	if *noTLS {
+		log.Printf("gobackup-agent web UI listening on %s (PLAIN HTTP — not recommended)", *addr)
+		if err := http.ListenAndServe(*addr, mux); err != nil {
+			fatal(err.Error())
+		}
+		return
+	}
+
+	cert, key := *tlsCert, *tlsKey
+	if cert == "" || key == "" {
+		cert, key = "gobackup-agent-cert.pem", "gobackup-agent-key.pem"
+		if err := tlsutil.EnsureCert(cert, key, []string{hostname, "localhost", "127.0.0.1"}); err != nil {
+			fatal(fmt.Sprintf("generate self-signed cert: %v", err))
+		}
+	}
+	log.Printf("gobackup-agent web UI listening on https://%s", *addr)
+	if err := http.ListenAndServeTLS(*addr, cert, key, mux); err != nil {
 		fatal(err.Error())
 	}
 }

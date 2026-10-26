@@ -4,10 +4,13 @@ package poller
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -17,12 +20,29 @@ type Client struct {
 	HTTP       *http.Client
 }
 
-func NewClient(centralURL, token string) *Client {
-	return &Client{
-		CentralURL: centralURL,
-		Token:      token,
-		HTTP:       &http.Client{Timeout: 10 * time.Second},
+// NewClient builds an HTTPS-aware client. If caCertPath is non-empty, the
+// Central's certificate must chain to that CA (pinned trust — no public CA
+// needed for an internal self-signed deployment); an empty caCertPath falls
+// back to the system trust store (use for a CentralURL with a real CA-signed
+// certificate, e.g. Let's Encrypt).
+func NewClient(centralURL, token, caCertPath string) (*Client, error) {
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+
+	if caCertPath != "" {
+		caCert, err := os.ReadFile(caCertPath)
+		if err != nil {
+			return nil, fmt.Errorf("read central CA cert: %w", err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("invalid CA cert at %s", caCertPath)
+		}
+		httpClient.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{RootCAs: pool},
+		}
 	}
+
+	return &Client{CentralURL: centralURL, Token: token, HTTP: httpClient}, nil
 }
 
 type RegisterResult struct {
@@ -31,10 +51,17 @@ type RegisterResult struct {
 }
 
 // Register calls POST /api/v1/agents/register and returns the issued token.
-// It does not require a token itself (bootstrap step).
-func Register(centralURL, name, hostname string) (RegisterResult, error) {
+// It does not require a token itself (bootstrap step), but does reuse the
+// same pinned-CA HTTP client so the very first contact with the Central is
+// already verified, not just the later polls.
+func Register(centralURL, name, hostname, caCertPath string) (RegisterResult, error) {
+	client, err := NewClient(centralURL, "", caCertPath)
+	if err != nil {
+		return RegisterResult{}, err
+	}
+
 	body, _ := json.Marshal(map[string]string{"name": name, "hostname": hostname})
-	resp, err := http.Post(centralURL+"/api/v1/agents/register", "application/json", bytes.NewReader(body))
+	resp, err := client.HTTP.Post(centralURL+"/api/v1/agents/register", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return RegisterResult{}, fmt.Errorf("register request: %w", err)
 	}

@@ -76,6 +76,7 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
 <fieldset>
 <legend>Nova tarefa de arquivos</legend>
 <form method="post" action="{{.Base}}/jobs/file">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
   <div>Nome: <input type="text" name="name" required></div>
   <div>Origem: <input type="text" name="source" required></div>
   <div>Destino (caminho): <input type="text" name="dest" required></div>
@@ -105,6 +106,7 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
 <fieldset>
 <legend>Nova tarefa de banco de dados</legend>
 <form method="post" action="{{.Base}}/jobs/db">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
   <div>Nome: <input type="text" name="name" required></div>
   <div>Engine:
     <select name="engine">
