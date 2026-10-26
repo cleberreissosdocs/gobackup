@@ -295,7 +295,7 @@ func (r *CentralRunner) ListJobs(ctx context.Context) ([]JobSummary, error) {
 		}
 		out = append(out, JobSummary{
 			ID: strField(m, "id"), Name: strField(m, "name"), Kind: strField(m, "kind"),
-			Cron: strField(m, "cron"), Enabled: boolField(m, "enabled"),
+			Cron: strField(m, "cron"), Enabled: boolField(m, "enabled"), Status: strField(m, "last_status"),
 		})
 	}
 	return out, nil

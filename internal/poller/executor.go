@@ -289,15 +289,16 @@ func (e *Executor) listJobs(ctx context.Context) (map[string]any, error) {
 		return nil, err
 	}
 	type jobEntry struct {
-		ID      string `json:"id"`
-		Name    string `json:"name"`
-		Kind    string `json:"kind"`
-		Cron    string `json:"cron"`
-		Enabled bool   `json:"enabled"`
+		ID         string `json:"id"`
+		Name       string `json:"name"`
+		Kind       string `json:"kind"`
+		Cron       string `json:"cron"`
+		Enabled    bool   `json:"enabled"`
+		LastStatus string `json:"last_status"`
 	}
 	list := make([]jobEntry, 0, len(rows))
 	for _, row := range rows {
-		list = append(list, jobEntry{ID: row.ID.String(), Name: row.Name, Kind: row.Kind, Cron: row.Cron, Enabled: row.Enabled})
+		list = append(list, jobEntry{ID: row.ID.String(), Name: row.Name, Kind: row.Kind, Cron: row.Cron, Enabled: row.Enabled, LastStatus: row.LastStatus})
 	}
 	return map[string]any{"jobs": list}, nil
 }

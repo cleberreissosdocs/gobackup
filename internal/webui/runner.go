@@ -73,6 +73,12 @@ type JobSummary struct {
 	Kind    string // files|database
 	Cron    string
 	Enabled bool
+	// Status is the most recent execution's status: "running" means a
+	// backup for this job is active RIGHT NOW (across any trigger — manual,
+	// scheduled, or a remote command) — the UI shows "Executando" as a link
+	// to the live progress page. Otherwise "success"/"failed", or "" if the
+	// job has never run.
+	Status string
 }
 
 // ProgressInfo is what the "Executar" progress bar polls.

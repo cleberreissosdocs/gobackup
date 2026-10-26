@@ -145,8 +145,10 @@ legend {
   text-transform: uppercase; letter-spacing: 0.05em; background: rgba(45,108,223,0.12); border-radius: 20px;
 }
 .status-success, .status-failed, .status-pending, .status-running, .status-acked, .status-delivered {
-  display: inline-block; padding: 0.15rem 0.6rem; border-radius: 20px; font-size: 0.78rem; font-weight: 600;
+  display: inline-block; padding: 0.15rem 0.6rem; border-radius: 20px; font-size: 0.78rem; font-weight: 600; text-decoration: none;
 }
+a.status-running { cursor: pointer; }
+a.status-running:hover { filter: brightness(1.15); }
 .status-success { color: var(--gb-success); background: var(--gb-success-bg); }
 .status-failed { color: var(--gb-danger); background: var(--gb-danger-bg); }
 .status-pending, .status-running, .status-acked, .status-delivered { color: var(--gb-warning); background: var(--gb-warning-bg); }
@@ -487,12 +489,13 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
 <fieldset>
 <legend>Tarefas</legend>
 <table>
-<tr><th>Nome</th><th>Tipo</th><th>Agendamento</th><th>Ação</th></tr>
+<tr><th>Nome</th><th>Tipo</th><th>Agendamento</th><th>Status</th><th>Ação</th></tr>
 {{range .Jobs}}
 <tr>
   <td>{{.Name}}{{if not .Enabled}} <small>(desabilitada)</small>{{end}}</td>
   <td>{{if eq .Kind "files"}}Arquivos{{else}}Banco de dados{{end}}</td>
   <td>{{if .Cron}}{{.Cron}}{{else}}<small>manual</small>{{end}}</td>
+  <td>{{if eq .Status "running"}}<a href="{{$.Base}}/jobs/{{.ID}}/progress" class="status-running">Executando</a>{{else if eq .Status "success"}}<span class="status-success">sucesso</span>{{else if eq .Status "failed"}}<span class="status-failed">falhou</span>{{else}}<small>nunca executada</small>{{end}}</td>
   <td style="white-space:nowrap;">
     <a href="{{$.Base}}/jobs/{{.ID}}/edit">Editar</a>
     <form method="post" action="{{$.Base}}/jobs/{{.ID}}/run" style="display:inline-flex; gap:0.5rem; align-items:center; margin-left:0.8rem">
@@ -509,7 +512,7 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
   </td>
 </tr>
 {{else}}
-<tr><td colspan="4">nenhuma tarefa criada ainda</td></tr>
+<tr><td colspan="5">nenhuma tarefa criada ainda</td></tr>
 {{end}}
 </table>
 </fieldset>

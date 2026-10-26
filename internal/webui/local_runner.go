@@ -160,7 +160,7 @@ func (r *LocalRunner) ListJobs(ctx context.Context) ([]JobSummary, error) {
 	}
 	out := make([]JobSummary, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, JobSummary{ID: row.ID.String(), Name: row.Name, Kind: row.Kind, Cron: row.Cron, Enabled: row.Enabled})
+		out = append(out, JobSummary{ID: row.ID.String(), Name: row.Name, Kind: row.Kind, Cron: row.Cron, Enabled: row.Enabled, Status: row.LastStatus})
 	}
 	return out, nil
 }

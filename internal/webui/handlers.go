@@ -40,6 +40,7 @@ func (s *Site) Mount(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("GET "+prefix+"/jobs/{jobID}/edit", s.Auth.RequireLogin(s.handleEditJobForm))
 	mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/update", s.Auth.RequireLoginAndCSRF(s.handleUpdateJob))
 	mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/run", s.Auth.RequireLoginAndCSRF(s.handleRunJob))
+	mux.HandleFunc("GET "+prefix+"/jobs/{jobID}/progress", s.Auth.RequireLogin(s.handleViewProgress))
 	mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/delete", s.Auth.RequireLoginAndCSRF(s.handleDeleteJob))
 	mux.HandleFunc("GET "+prefix+"/jobs/{jobID}/status", s.Auth.RequireLogin(s.handleJobStatus))
 }
@@ -301,6 +302,23 @@ func (s *Site) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 
 	s.renderPage(w, r, "Resultado — "+name, outcomeTmpl, map[string]any{
 		"Name": name, "Base": s.base(r), "Outcome": outcome, "JobName": jobID,
+	})
+}
+
+// handleViewProgress shows the SAME progress page as handleRunJob, but
+// read-only: it does NOT start/restart the job, just opens the live view
+// for a job already running (e.g. clicking "Executando" in the Tarefas
+// list, or a job kicked off by the scheduler/a remote command). Polling is
+// identical, so a job that already finished simply shows its last result.
+func (s *Site) handleViewProgress(w http.ResponseWriter, r *http.Request) {
+	_, name, err := s.GetRunner(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	jobID := r.PathValue("jobID")
+	s.renderPage(w, r, "Executando — "+name, progressTmpl, map[string]any{
+		"Name": name, "Base": s.base(r), "JobID": jobID,
 	})
 }
 

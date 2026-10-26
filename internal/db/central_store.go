@@ -426,20 +426,21 @@ func (s *Store) GetAgentsHealth(ctx context.Context) (map[uuid.UUID]bool, error)
 
 // AllAgentsJobRow is one row of the dashboard's combined jobs table.
 type AllAgentsJobRow struct {
-	AgentID   uuid.UUID
-	AgentName string
-	JobID     string
-	Name      string
-	Kind      string
-	Cron      string
-	Enabled   bool
+	AgentID    uuid.UUID
+	AgentName  string
+	JobID      string
+	Name       string
+	Kind       string
+	Cron       string
+	Enabled    bool
+	LastStatus string
 }
 
 // ListAllAgentJobs returns the cached job list across every agent, for the
 // dashboard's "Tarefas de todos os servidores" table.
 func (s *Store) ListAllAgentJobs(ctx context.Context) ([]AllAgentsJobRow, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT c.agent_id, a.name, c.job_id, c.name, c.kind, c.cron, c.enabled
+		SELECT c.agent_id, a.name, c.job_id, c.name, c.kind, c.cron, c.enabled, c.last_status
 		FROM agent_jobs_cache c
 		JOIN agents a ON a.id = c.agent_id
 		ORDER BY a.name, c.name
@@ -451,7 +452,7 @@ func (s *Store) ListAllAgentJobs(ctx context.Context) ([]AllAgentsJobRow, error)
 	var out []AllAgentsJobRow
 	for rows.Next() {
 		var row AllAgentsJobRow
-		if err := rows.Scan(&row.AgentID, &row.AgentName, &row.JobID, &row.Name, &row.Kind, &row.Cron, &row.Enabled); err != nil {
+		if err := rows.Scan(&row.AgentID, &row.AgentName, &row.JobID, &row.Name, &row.Kind, &row.Cron, &row.Enabled, &row.LastStatus); err != nil {
 			return nil, err
 		}
 		out = append(out, row)

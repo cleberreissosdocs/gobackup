@@ -363,6 +363,13 @@ tbody tr:last-child td { border-bottom: none; }
 .online { color: var(--gb-success); font-weight:600; }
 .offline { color: var(--gb-danger); font-weight:600; }
 .unknown { color: var(--gb-text-muted); }
+.status-success, .status-failed, .status-pending, .status-running, .status-acked, .status-delivered {
+  display: inline-block; padding: 0.15rem 0.6rem; border-radius: 20px; font-size: 0.78rem; font-weight: 600; text-decoration: none;
+}
+a.status-running:hover { filter: brightness(1.15); }
+.status-success { color: var(--gb-success); background: var(--gb-success-bg); }
+.status-failed { color: var(--gb-danger); background: var(--gb-danger-bg); }
+.status-pending, .status-running, .status-acked, .status-delivered { color: var(--gb-warning); background: var(--gb-warning-bg); }
 .notice { background: var(--gb-success-bg); border:1px solid rgba(46,204,113,0.35); color:#9ee8b4; padding:0.7rem 1.1rem; border-radius: var(--gb-radius-sm); max-width:480px; }
 .error { color: var(--gb-danger); }
 small { color: var(--gb-text-muted); }
@@ -515,13 +522,14 @@ tr.gb-row-offline td { color: var(--gb-text-faint); }
 <h2>Tarefas de todos os servidores</h2>
 <div class="gb-card">
 <table>
-<tr><th>Servidor</th><th>Tarefa</th><th>Tipo</th><th>Agendamento</th><th>Ação</th></tr>
+<tr><th>Servidor</th><th>Tarefa</th><th>Tipo</th><th>Agendamento</th><th>Status</th><th>Ação</th></tr>
 {{range .Jobs}}
 <tr class="{{if not .AgentOnline}}gb-row-offline{{end}}">
   <td>{{.AgentName}}{{if not .AgentOnline}} <small>(offline)</small>{{end}}</td>
   <td>{{.Name}}{{if not .Enabled}} <small>(desabilitada)</small>{{end}}</td>
   <td>{{if eq .Kind "files"}}Arquivos{{else}}Banco de dados{{end}}</td>
   <td>{{if .Cron}}{{.Cron}}{{else}}<small>manual</small>{{end}}</td>
+  <td>{{if eq .JobStatus "running"}}<a href="/agents/{{.AgentID}}/jobs/{{.JobID}}/progress" class="status-running">Executando</a>{{else if eq .JobStatus "success"}}<span class="status-success">sucesso</span>{{else if eq .JobStatus "failed"}}<span class="status-failed">falhou</span>{{else}}<small>nunca executada</small>{{end}}</td>
   <td style="white-space:nowrap;">
     {{if .AgentOnline}}
     <a href="/agents/{{.AgentID}}/jobs/{{.JobID}}/edit">Editar</a>
@@ -546,7 +554,7 @@ tr.gb-row-offline td { color: var(--gb-text-faint); }
   </td>
 </tr>
 {{else}}
-<tr><td colspan="5">nenhuma tarefa criada ainda em nenhum servidor</td></tr>
+<tr><td colspan="6">nenhuma tarefa criada ainda em nenhum servidor</td></tr>
 {{end}}
 </table>
 </div>
@@ -572,6 +580,7 @@ type dashboardJobView struct {
 	Cron        string
 	Enabled     bool
 	AgentOnline bool
+	JobStatus   string
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -617,7 +626,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	for _, j := range jobRows {
 		jobViews = append(jobViews, dashboardJobView{
 			AgentID: j.AgentID.String(), AgentName: j.AgentName, JobID: j.JobID, Name: j.Name, Kind: j.Kind,
-			Cron: j.Cron, Enabled: j.Enabled, AgentOnline: onlineByAgent[j.AgentID],
+			Cron: j.Cron, Enabled: j.Enabled, AgentOnline: onlineByAgent[j.AgentID], JobStatus: j.LastStatus,
 		})
 	}
 
