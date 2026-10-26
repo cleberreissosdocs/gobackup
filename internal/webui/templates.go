@@ -10,6 +10,45 @@ var funcs = template.FuncMap{
 		}
 		return ""
 	},
+	// scheduleBuilder renders the intuitive button-based scheduling widget
+	// (replaces a raw cron text box). prefix must be unique per form on the
+	// same page (e.g. "file", "db", "efile", "edb") so multiple instances
+	// don't collide; cronValue pre-fills it when editing an existing job.
+	"scheduleBuilder": func(prefix, cronValue string) template.HTML {
+		return template.HTML(`<div class="gb-sched" data-prefix="` + template.HTMLEscapeString(prefix) + `" data-initial="` + template.HTMLEscapeString(cronValue) + `">
+  <input type="hidden" name="cron" class="gb-sched-cron">
+  <div class="gb-sched-freq">
+    <button type="button" class="gb-sched-btn" data-freq="manual">Manual</button>
+    <button type="button" class="gb-sched-btn" data-freq="daily">Diariamente</button>
+    <button type="button" class="gb-sched-btn" data-freq="weekly">Semanalmente</button>
+    <button type="button" class="gb-sched-btn" data-freq="monthly">Mensalmente</button>
+    <button type="button" class="gb-sched-btn" data-freq="advanced">Avançado</button>
+  </div>
+  <div class="gb-sched-opt" data-opt="daily" hidden>
+    <label>Horário <input type="time" class="gb-sched-time" value="03:00"></label>
+  </div>
+  <div class="gb-sched-opt" data-opt="weekly" hidden>
+    <label>Horário <input type="time" class="gb-sched-time" value="03:00"></label>
+    <div class="gb-sched-days">
+      <button type="button" class="gb-sched-day" data-day="0">Dom</button>
+      <button type="button" class="gb-sched-day" data-day="1">Seg</button>
+      <button type="button" class="gb-sched-day" data-day="2">Ter</button>
+      <button type="button" class="gb-sched-day" data-day="3">Qua</button>
+      <button type="button" class="gb-sched-day" data-day="4">Qui</button>
+      <button type="button" class="gb-sched-day" data-day="5">Sex</button>
+      <button type="button" class="gb-sched-day" data-day="6">Sáb</button>
+    </div>
+  </div>
+  <div class="gb-sched-opt" data-opt="monthly" hidden>
+    <label>Dia do mês <input type="number" class="gb-sched-monthday" min="1" max="28" value="1"></label>
+    <label>Horário <input type="time" class="gb-sched-time" value="03:00"></label>
+  </div>
+  <div class="gb-sched-opt" data-opt="advanced" hidden>
+    <label>Expressão cron <input type="text" class="gb-sched-raw" placeholder="minuto hora dia mês dia-da-semana"></label>
+  </div>
+  <p class="gb-sched-summary"></p>
+</div>`)
+	},
 }
 
 var layoutTmpl = template.Must(template.New("layout").Parse(`<!doctype html>
@@ -42,6 +81,18 @@ legend { padding: 0 0.5rem; color:#9ad1ff; }
 .status-pending, .status-running, .status-acked, .status-delivered { color:#ffb300; font-weight:bold; }
 .error { color:#f44336; }
 .dir { color:#9ad1ff; }
+.gb-sched { max-width: 560px; background:#17171d; border:1px solid #2a2a33; border-radius:8px; padding:1rem; margin-top:0.3rem; }
+.gb-sched-freq { display:flex; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.2rem; }
+.gb-sched-btn { background:#262630; color:#ccc; border:1px solid #3a3a46; padding:0.4rem 0.9rem; border-radius:20px; font-size:0.9rem; }
+.gb-sched-btn:hover { background:#31313d; }
+.gb-sched-btn.active { background:#2d6cdf; border-color:#2d6cdf; color:#fff; }
+.gb-sched-opt { margin-top:0.9rem; display:flex; flex-wrap:wrap; align-items:center; gap:1rem; }
+.gb-sched-opt label { display:flex; flex-direction:column; gap:0.3rem; font-size:0.8rem; color:#9aa0ab; text-transform:uppercase; letter-spacing:0.03em; }
+.gb-sched-opt input { margin:0; width:auto; }
+.gb-sched-days { display:flex; gap:0.4rem; }
+.gb-sched-day { background:#262630; color:#ccc; border:1px solid #3a3a46; padding:0.35rem 0.6rem; border-radius:6px; font-size:0.82rem; }
+.gb-sched-day.active { background:#2d6cdf; border-color:#2d6cdf; color:#fff; }
+.gb-sched-summary { margin:0.8rem 0 0; font-size:0.85rem; color:#8a8f99; }
 small { color:#999; }
 #gb-picker-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); align-items:center; justify-content:center; z-index:1000; }
 #gb-picker-box { background:#1b1b22; border:1px solid #333; border-radius:8px; padding:1.5rem; width:90%; max-width:600px; max-height:80vh; display:flex; flex-direction:column; }
@@ -134,6 +185,102 @@ function gbLoadDir(path) {
       list.innerHTML = '<div class="error">erro ao carregar: ' + err + '</div>';
     });
 }
+
+// --- Schedule builder: turns each .gb-sched widget into button-based
+// scheduling UI, writing the resulting cron expression into its hidden
+// input. Multiple independent instances can coexist on one page (create
+// file/db forms + edit forms), disambiguated by data-prefix.
+var gbWeekdayNames = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+function gbParseCron(expr) {
+  var parts = (expr || '').trim().split(/\s+/);
+  if (parts.length !== 5) return null;
+  return { min: parts[0], hour: parts[1], dom: parts[2], mon: parts[3], dow: parts[4] };
+}
+function gbInitSchedule(root) {
+  var cronInput = root.querySelector('.gb-sched-cron');
+  var freqBtns = root.querySelectorAll('.gb-sched-btn');
+  var opts = root.querySelectorAll('.gb-sched-opt');
+  var summary = root.querySelector('.gb-sched-summary');
+  var dayBtns = root.querySelectorAll('.gb-sched-day');
+  var currentFreq = 'manual';
+
+  function setFreq(freq) {
+    currentFreq = freq;
+    freqBtns.forEach(function(b) { b.classList.toggle('active', b.dataset.freq === freq); });
+    opts.forEach(function(o) { o.hidden = (o.dataset.opt !== freq); });
+    recompute();
+  }
+
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+
+  function recompute() {
+    var cron = '';
+    if (currentFreq === 'manual') {
+      cron = '';
+      summary.textContent = 'Só roda quando clicar em "Executar" — sem agendamento automático.';
+    } else if (currentFreq === 'daily') {
+      var t = (root.querySelector('[data-opt="daily"] .gb-sched-time').value || '03:00').split(':');
+      cron = parseInt(t[1],10) + ' ' + parseInt(t[0],10) + ' * * *';
+      summary.textContent = 'Roda todo dia às ' + pad(parseInt(t[0],10)) + ':' + pad(parseInt(t[1],10)) + '.';
+    } else if (currentFreq === 'weekly') {
+      var t2 = (root.querySelector('[data-opt="weekly"] .gb-sched-time').value || '03:00').split(':');
+      var days = [];
+      dayBtns.forEach(function(b) { if (b.classList.contains('active')) days.push(b.dataset.day); });
+      if (days.length === 0) {
+        summary.textContent = 'Escolha pelo menos um dia da semana.';
+        cronInput.value = '';
+        return;
+      }
+      cron = parseInt(t2[1],10) + ' ' + parseInt(t2[0],10) + ' * * ' + days.join(',');
+      var names = days.map(function(d) { return gbWeekdayNames[parseInt(d,10)]; });
+      summary.textContent = 'Roda toda(o) ' + names.join(', ') + ' às ' + pad(parseInt(t2[0],10)) + ':' + pad(parseInt(t2[1],10)) + '.';
+    } else if (currentFreq === 'monthly') {
+      var dom = root.querySelector('[data-opt="monthly"] .gb-sched-monthday').value || '1';
+      var t3 = (root.querySelector('[data-opt="monthly"] .gb-sched-time').value || '03:00').split(':');
+      cron = parseInt(t3[1],10) + ' ' + parseInt(t3[0],10) + ' ' + dom + ' * *';
+      summary.textContent = 'Roda todo dia ' + dom + ' do mês às ' + pad(parseInt(t3[0],10)) + ':' + pad(parseInt(t3[1],10)) + '.';
+    } else if (currentFreq === 'advanced') {
+      cron = root.querySelector('[data-opt="advanced"] .gb-sched-raw').value || '';
+      summary.textContent = cron ? 'Expressão cron personalizada: ' + cron : 'Digite uma expressão cron de 5 campos.';
+    }
+    cronInput.value = cron;
+  }
+
+  freqBtns.forEach(function(b) {
+    b.addEventListener('click', function() { setFreq(b.dataset.freq); });
+  });
+  dayBtns.forEach(function(b) {
+    b.addEventListener('click', function() { b.classList.toggle('active'); recompute(); });
+  });
+  root.querySelectorAll('.gb-sched-time, .gb-sched-monthday, .gb-sched-raw').forEach(function(el) {
+    el.addEventListener('input', recompute);
+  });
+
+  // Pre-fill from an existing cron value (edit forms).
+  var initial = root.dataset.initial || '';
+  var parsed = gbParseCron(initial);
+  if (!initial) {
+    setFreq('manual');
+  } else if (parsed && parsed.dom === '*' && parsed.mon === '*' && parsed.dow === '*') {
+    root.querySelector('[data-opt="daily"] .gb-sched-time').value = pad(parseInt(parsed.hour,10)) + ':' + pad(parseInt(parsed.min,10));
+    setFreq('daily');
+  } else if (parsed && parsed.dom === '*' && parsed.mon === '*' && parsed.dow !== '*') {
+    root.querySelector('[data-opt="weekly"] .gb-sched-time').value = pad(parseInt(parsed.hour,10)) + ':' + pad(parseInt(parsed.min,10));
+    parsed.dow.split(',').forEach(function(d) {
+      var btn = root.querySelector('.gb-sched-day[data-day="' + d + '"]');
+      if (btn) btn.classList.add('active');
+    });
+    setFreq('weekly');
+  } else if (parsed && parsed.dom !== '*' && parsed.mon === '*' && parsed.dow === '*') {
+    root.querySelector('[data-opt="monthly"] .gb-sched-monthday').value = parsed.dom;
+    root.querySelector('[data-opt="monthly"] .gb-sched-time').value = pad(parseInt(parsed.hour,10)) + ':' + pad(parseInt(parsed.min,10));
+    setFreq('monthly');
+  } else {
+    root.querySelector('[data-opt="advanced"] .gb-sched-raw').value = initial;
+    setFreq('advanced');
+  }
+}
+document.querySelectorAll('.gb-sched').forEach(gbInitSchedule);
 </script>
 </body>
 </html>`))
@@ -197,8 +344,8 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
       <button type="button" class="secondary" onclick="gbOpenPicker('file_sshkey','{{.Base}}')">Escolher arquivo…</button>
     </div>
   </div>
-  <div>Agendamento (cron, opcional — ex: "0 3 * * *" = todo dia às 3h; deixe em branco para só rodar manualmente):
-    <input type="text" name="cron" placeholder="minuto hora dia mês dia-da-semana">
+  <div>Agendamento:
+    {{scheduleBuilder "file" ""}}
   </div>
   <button type="submit">Criar</button>
 </form>
@@ -258,8 +405,8 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
       <button type="button" class="secondary" onclick="gbOpenPicker('db_sshkey','{{.Base}}')">Escolher arquivo…</button>
     </div>
   </div>
-  <div>Agendamento (cron, opcional — lembre-se: se o banco exige senha, um backup agendado vai falhar porque a senha nunca fica salva; agende só se o banco não precisar de autenticação, ou rode manualmente):
-    <input type="text" name="cron" placeholder="minuto hora dia mês dia-da-semana">
+  <div>Agendamento <small>(se o banco exigir senha, um backup agendado vai falhar porque a senha nunca fica salva — agende só sem autenticação, ou rode manualmente)</small>:
+    {{scheduleBuilder "db" ""}}
   </div>
   <button type="submit">Criar</button>
 </form>
@@ -333,7 +480,7 @@ var outcomeTmpl = template.Must(template.New("outcome").Parse(`
 <p><a href="{{.Base}}/">&larr; voltar</a></p>
 `))
 
-var editFileTmpl = template.Must(template.New("edit-file").Parse(`
+var editFileTmpl = template.Must(template.New("edit-file").Funcs(funcs).Parse(`
 <h1>Editar tarefa de arquivos: {{.Job.Name}}</h1>
 <form method="post" action="{{.Base}}/jobs/{{.JobID}}/update">
   <input type="hidden" name="csrf_token" value="{{.CSRF}}">
@@ -380,8 +527,8 @@ var editFileTmpl = template.Must(template.New("edit-file").Parse(`
       <button type="button" class="secondary" onclick="gbOpenPicker('efile_sshkey','{{.Base}}')">Escolher arquivo…</button>
     </div>
   </div>
-  <div>Agendamento (cron, opcional):
-    <input type="text" name="cron" value="{{.Job.Cron}}" placeholder="minuto hora dia mês dia-da-semana">
+  <div>Agendamento:
+    {{scheduleBuilder "efile" .Job.Cron}}
   </div>
   <div><label><input type="checkbox" name="enabled" {{if .Job.Enabled}}checked{{end}}> Habilitada (desmarcar pausa o agendamento, sem apagar a tarefa)</label></div>
   <button type="submit">Salvar</button>
@@ -389,7 +536,7 @@ var editFileTmpl = template.Must(template.New("edit-file").Parse(`
 <p><a href="{{.Base}}/">&larr; voltar</a></p>
 `))
 
-var editDBTmpl = template.Must(template.New("edit-db").Parse(`
+var editDBTmpl = template.Must(template.New("edit-db").Funcs(funcs).Parse(`
 <h1>Editar tarefa de banco de dados: {{.Job.Name}}</h1>
 <form method="post" action="{{.Base}}/jobs/{{.JobID}}/update">
   <input type="hidden" name="csrf_token" value="{{.CSRF}}">
@@ -444,8 +591,8 @@ var editDBTmpl = template.Must(template.New("edit-db").Parse(`
       <button type="button" class="secondary" onclick="gbOpenPicker('edb_sshkey','{{.Base}}')">Escolher arquivo…</button>
     </div>
   </div>
-  <div>Agendamento (cron, opcional — só funciona se o banco não exigir senha):
-    <input type="text" name="cron" value="{{.Job.Cron}}" placeholder="minuto hora dia mês dia-da-semana">
+  <div>Agendamento <small>(só funciona se o banco não exigir senha)</small>:
+    {{scheduleBuilder "edb" .Job.Cron}}
   </div>
   <div><label><input type="checkbox" name="enabled" {{if .Job.Enabled}}checked{{end}}> Habilitada (desmarcar pausa o agendamento, sem apagar a tarefa)</label></div>
   <button type="submit">Salvar</button>
