@@ -135,10 +135,28 @@ func (e *Engine) runDB(ctx context.Context, jobID uuid.UUID, jobIDStr string, tr
 		e.Registry.Set(jobIDStr, progress.State{ExecutionID: execID.String(), Status: "failed", Percent: -1, Message: runErr.Error()})
 		return
 	}
+
+	retentionMsg := ""
+	if d.RetentionDays > 0 {
+		deleted, cleanupErr := dbjob.CleanupOld(ctx, dbjob.Request{
+			Engine: core.DBEngine(d.Engine), Database: d.Database, SQLitePath: d.SQLitePath,
+			DestType: d.DestType, DestPath: d.DestPath,
+			SSHHost: d.SSHHost, SSHPort: d.SSHPort, SSHUser: d.SSHUser, SSHKey: d.SSHKey,
+		}, d.RetentionDays)
+		switch {
+		case cleanupErr != nil:
+			// Non-fatal: the backup itself already succeeded — a retention
+			// cleanup failure shouldn't be reported as the job failing.
+			retentionMsg = fmt.Sprintf(" (retenção: falha ao limpar antigos: %v)", cleanupErr)
+		case deleted > 0:
+			retentionMsg = fmt.Sprintf(" (retenção: %d backup(s) antigo(s) removido(s))", deleted)
+		}
+	}
+
 	_ = e.Store.FinishExecution(ctx, execID, core.ExecSuccess, res.BytesWritten, 1, "")
 	e.Registry.Set(jobIDStr, progress.State{
 		ExecutionID: execID.String(), Status: "success", Percent: 100,
-		Message: fmt.Sprintf("gravado em %s (%d bytes)", res.DestPath, res.BytesWritten),
+		Message: fmt.Sprintf("gravado em %s (%d bytes)%s", res.DestPath, res.BytesWritten, retentionMsg),
 	})
 }
 

@@ -151,14 +151,14 @@ func (s *Store) CreateDBConnection(ctx context.Context, agentID uuid.UUID, name 
 // CreateDatabaseJob inserts (or reuses, by name) a job_kind=database backup
 // job, persisting the dump destination too (dest_path/type/ssh_*) so it can
 // be re-run later without resubmitting the form.
-func (s *Store) CreateDatabaseJob(ctx context.Context, tenantID, agentID, dbConnectionID uuid.UUID, name string, compression core.Compression, destPath, destType, sshHost string, sshPort int, sshUser, sshKeyPath, cron string) (uuid.UUID, error) {
+func (s *Store) CreateDatabaseJob(ctx context.Context, tenantID, agentID, dbConnectionID uuid.UUID, name string, compression core.Compression, destPath, destType, sshHost string, sshPort int, sshUser, sshKeyPath, cron string, retentionDays int) (uuid.UUID, error) {
 	var jobID uuid.UUID
 	err := s.Pool.QueryRow(ctx, `
-		INSERT INTO backup_jobs (tenant_id, agent_id, name, job_kind, db_connection_id, compression, dest_path, dest_type, ssh_host, ssh_port, ssh_user, ssh_key_path, schedule_cron, enabled)
-		VALUES ($1, $2, $3, 'database', $4, $5, $6, $7, $8, $9, $10, $11, $12, true)
+		INSERT INTO backup_jobs (tenant_id, agent_id, name, job_kind, db_connection_id, compression, dest_path, dest_type, ssh_host, ssh_port, ssh_user, ssh_key_path, schedule_cron, retention_days, enabled)
+		VALUES ($1, $2, $3, 'database', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true)
 		ON CONFLICT DO NOTHING
 		RETURNING id
-	`, tenantID, agentID, name, dbConnectionID, string(compression), destPath, destType, sshHost, sshPort, sshUser, sshKeyPath, cron).Scan(&jobID)
+	`, tenantID, agentID, name, dbConnectionID, string(compression), destPath, destType, sshHost, sshPort, sshUser, sshKeyPath, cron, retentionDays).Scan(&jobID)
 	if err != nil {
 		err = s.Pool.QueryRow(ctx, `SELECT id FROM backup_jobs WHERE agent_id=$1 AND name=$2`, agentID, name).Scan(&jobID)
 		if err != nil {
@@ -168,9 +168,9 @@ func (s *Store) CreateDatabaseJob(ctx context.Context, tenantID, agentID, dbConn
 	_, _ = s.Pool.Exec(ctx, `
 		UPDATE backup_jobs
 		SET db_connection_id=$1, compression=$2, dest_path=$3, dest_type=$4,
-		    ssh_host=$5, ssh_port=$6, ssh_user=$7, ssh_key_path=$8, updated_at=now()
-		WHERE id=$9
-	`, dbConnectionID, string(compression), destPath, destType, sshHost, sshPort, sshUser, sshKeyPath, jobID)
+		    ssh_host=$5, ssh_port=$6, ssh_user=$7, ssh_key_path=$8, retention_days=$9, updated_at=now()
+		WHERE id=$10
+	`, dbConnectionID, string(compression), destPath, destType, sshHost, sshPort, sshUser, sshKeyPath, retentionDays, jobID)
 	return jobID, nil
 }
 
@@ -323,22 +323,23 @@ func (s *Store) GetFileJobDetails(ctx context.Context, jobID uuid.UUID) (FileJob
 // again at run time (unless the engine is sqlite/trust-auth, which needs
 // none).
 type DBJobDetails struct {
-	Name        string
-	Engine      string
-	Host        string
-	Port        int
-	Username    string
-	Database    string
-	SQLitePath  string
-	Compression string
-	DestPath    string
-	DestType    string
-	SSHHost     string
-	SSHPort     int
-	SSHUser     string
-	SSHKey      string
-	Cron        string
-	Enabled     bool
+	Name          string
+	Engine        string
+	Host          string
+	Port          int
+	Username      string
+	Database      string
+	SQLitePath    string
+	Compression   string
+	DestPath      string
+	DestType      string
+	SSHHost       string
+	SSHPort       int
+	SSHUser       string
+	SSHKey        string
+	RetentionDays int
+	Cron          string
+	Enabled       bool
 }
 
 func (s *Store) GetDBJobDetails(ctx context.Context, jobID uuid.UUID) (DBJobDetails, error) {
@@ -348,12 +349,12 @@ func (s *Store) GetDBJobDetails(ctx context.Context, jobID uuid.UUID) (DBJobDeta
 	err := s.Pool.QueryRow(ctx, `
 		SELECT bj.name, dc.engine, dc.host, dc.port, dc.username, dc.database_name, dc.sqlite_path,
 		       bj.compression, bj.dest_path, bj.dest_type, bj.ssh_host, bj.ssh_port, bj.ssh_user, bj.ssh_key_path,
-		       bj.schedule_cron, bj.enabled
+		       bj.retention_days, bj.schedule_cron, bj.enabled
 		FROM backup_jobs bj
 		JOIN db_connections dc ON dc.id = bj.db_connection_id
 		WHERE bj.id=$1 AND bj.job_kind='database'
 	`, jobID).Scan(&d.Name, &d.Engine, &d.Host, &d.Port, &d.Username, &d.Database, &d.SQLitePath,
-		&d.Compression, &d.DestPath, &destType, &sshHost, &sshPort, &sshUser, &sshKey, &d.Cron, &d.Enabled)
+		&d.Compression, &d.DestPath, &destType, &sshHost, &sshPort, &sshUser, &sshKey, &d.RetentionDays, &d.Cron, &d.Enabled)
 	if err != nil {
 		return d, fmt.Errorf("get db job details: %w", err)
 	}
@@ -441,7 +442,7 @@ func (s *Store) UpdateFileJobByID(ctx context.Context, jobID uuid.UUID, name, so
 
 // UpdateDatabaseJobByID overwrites an existing database job's definition
 // (and its underlying db_connections row) in place.
-func (s *Store) UpdateDatabaseJobByID(ctx context.Context, jobID uuid.UUID, name string, engine core.DBEngine, host string, port int, username, databaseName, sqlitePath string, compression core.Compression, destPath, destType, sshHost string, sshPort int, sshUser, sshKeyPath, cron string, enabled bool) error {
+func (s *Store) UpdateDatabaseJobByID(ctx context.Context, jobID uuid.UUID, name string, engine core.DBEngine, host string, port int, username, databaseName, sqlitePath string, compression core.Compression, destPath, destType, sshHost string, sshPort int, sshUser, sshKeyPath, cron string, retentionDays int, enabled bool) error {
 	var connID uuid.UUID
 	err := s.Pool.QueryRow(ctx, `SELECT db_connection_id FROM backup_jobs WHERE id=$1 AND job_kind='database'`, jobID).Scan(&connID)
 	if err != nil {
@@ -456,9 +457,9 @@ func (s *Store) UpdateDatabaseJobByID(ctx context.Context, jobID uuid.UUID, name
 	if _, err := s.Pool.Exec(ctx, `
 		UPDATE backup_jobs
 		SET name=$1, compression=$2, dest_path=$3, dest_type=$4, ssh_host=$5, ssh_port=$6, ssh_user=$7, ssh_key_path=$8,
-		    schedule_cron=$9, enabled=$10, updated_at=now()
-		WHERE id=$11 AND job_kind='database'
-	`, name, string(compression), destPath, destType, sshHost, sshPort, sshUser, sshKeyPath, cron, enabled, jobID); err != nil {
+		    schedule_cron=$9, retention_days=$10, enabled=$11, updated_at=now()
+		WHERE id=$12 AND job_kind='database'
+	`, name, string(compression), destPath, destType, sshHost, sshPort, sshUser, sshKeyPath, cron, retentionDays, enabled, jobID); err != nil {
 		return fmt.Errorf("update database job: %w", err)
 	}
 	return nil

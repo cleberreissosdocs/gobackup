@@ -57,8 +57,11 @@ type DBJobRequest struct {
 	SSHPort     int
 	SSHUser     string
 	SSHKey      string
-	Cron        string
-	Enabled     bool
+	// RetentionDays: automatically delete this job's own past backup files
+	// once older than this many days. 0 = keep forever (no auto-cleanup).
+	RetentionDays int
+	Cron          string
+	Enabled       bool
 }
 
 // JobOutcome is what the UI shows after creating/updating a job, or right

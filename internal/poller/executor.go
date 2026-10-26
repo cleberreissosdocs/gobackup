@@ -156,8 +156,9 @@ func (e *Executor) createJob(ctx context.Context, payload map[string]any) (map[s
 		if err != nil {
 			return nil, err
 		}
+		retentionDays := payloadInt(payload, "retention_days", 0)
 		jobID, err := e.Store.CreateDatabaseJob(ctx, e.TenantID, e.AgentID, connID, name, core.Compression(compression),
-			destPath, destType, sshHost, sshPort, sshUser, sshKeyPath, cron)
+			destPath, destType, sshHost, sshPort, sshUser, sshKeyPath, cron, retentionDays)
 		if err != nil {
 			return nil, err
 		}
@@ -221,7 +222,7 @@ func (e *Executor) getJob(ctx context.Context, payload map[string]any) (map[stri
 			"database": database, "sqlite_path": d.SQLitePath, "compression": d.Compression,
 			"destination_path": d.DestPath, "destination_type": d.DestType,
 			"ssh_host": d.SSHHost, "ssh_port": d.SSHPort, "ssh_user": d.SSHUser, "ssh_key_path": d.SSHKey,
-			"cron": d.Cron, "enabled": d.Enabled,
+			"retention_days": d.RetentionDays, "cron": d.Cron, "enabled": d.Enabled,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown job kind: %s", kind)
@@ -273,7 +274,7 @@ func (e *Executor) updateJob(ctx context.Context, payload map[string]any) (map[s
 			database = core.AllDatabasesSentinel
 		}
 		if err := e.Store.UpdateDatabaseJobByID(ctx, jobID, name, eng, host, port, username, database, sqlitePath,
-			core.Compression(compression), destPath, destType, sshHost, sshPort, sshUser, sshKeyPath, cron, enabled); err != nil {
+			core.Compression(compression), destPath, destType, sshHost, sshPort, sshUser, sshKeyPath, cron, payloadInt(payload, "retention_days", 0), enabled); err != nil {
 			return nil, err
 		}
 		return map[string]any{"job_id": jobIDStr}, nil

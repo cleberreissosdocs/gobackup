@@ -194,6 +194,7 @@ func dbJobFromForm(r *http.Request) DBJobRequest {
 		Enabled:     r.FormValue("enabled") == "on",
 	}
 	req.Port, _ = strconv.Atoi(r.FormValue("port"))
+	req.RetentionDays, _ = strconv.Atoi(r.FormValue("retention_days"))
 	req.SSHPort, _ = strconv.Atoi(r.FormValue("ssh_port"))
 	if r.FormValue("all_databases") == "on" {
 		req.Database = "__ALL__"

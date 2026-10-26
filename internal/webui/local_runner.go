@@ -86,7 +86,7 @@ func (r *LocalRunner) CreateDBJob(ctx context.Context, req DBJobRequest) (string
 		return "", err
 	}
 	jobID, err := r.Store.CreateDatabaseJob(ctx, r.TenantID, r.AgentID, connID, req.Name, core.Compression(compression),
-		req.DestPath, req.DestType, req.SSHHost, req.SSHPort, req.SSHUser, req.SSHKey, req.Cron)
+		req.DestPath, req.DestType, req.SSHHost, req.SSHPort, req.SSHUser, req.SSHKey, req.Cron, req.RetentionDays)
 	if err != nil {
 		return "", err
 	}
@@ -126,7 +126,7 @@ func (r *LocalRunner) GetDBJob(ctx context.Context, jobIDStr string) (DBJobReque
 		Name: d.Name, Engine: d.Engine, Host: d.Host, Port: d.Port, Username: d.Username,
 		Database: database, SQLitePath: d.SQLitePath, Compression: d.Compression,
 		DestPath: d.DestPath, DestType: d.DestType, SSHHost: d.SSHHost, SSHPort: d.SSHPort, SSHUser: d.SSHUser, SSHKey: d.SSHKey,
-		Cron: d.Cron, Enabled: d.Enabled,
+		RetentionDays: d.RetentionDays, Cron: d.Cron, Enabled: d.Enabled,
 	}, nil
 }
 
@@ -150,7 +150,7 @@ func (r *LocalRunner) UpdateDBJob(ctx context.Context, jobIDStr string, req DBJo
 	dbName, compression := dbDefaults(req)
 	return r.Store.UpdateDatabaseJobByID(ctx, jobID, req.Name, core.DBEngine(req.Engine), req.Host, req.Port, req.Username,
 		dbName, req.SQLitePath, core.Compression(compression), req.DestPath, req.DestType, req.SSHHost, req.SSHPort, req.SSHUser, req.SSHKey,
-		req.Cron, req.Enabled)
+		req.Cron, req.RetentionDays, req.Enabled)
 }
 
 func (r *LocalRunner) ListJobs(ctx context.Context) ([]JobSummary, error) {

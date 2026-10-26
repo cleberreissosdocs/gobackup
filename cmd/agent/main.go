@@ -367,7 +367,7 @@ func cmdRunDB(args []string) {
 		fatal(err.Error())
 	}
 	jobID, err := store.CreateDatabaseJob(ctx, tenantID, agentID, connID, *name, core.Compression(*compression),
-		*dest, *destType, *sshHost, *sshPort, *sshUser, *sshKey, "")
+		*dest, *destType, *sshHost, *sshPort, *sshUser, *sshKey, "", 0)
 	if err != nil {
 		fatal(err.Error())
 	}

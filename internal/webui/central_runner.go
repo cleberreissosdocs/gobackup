@@ -148,6 +148,7 @@ func dbJobPayload(req DBJobRequest) map[string]any {
 		"ssh_port":         req.SSHPort,
 		"ssh_user":         req.SSHUser,
 		"ssh_key_path":     req.SSHKey,
+		"retention_days":   req.RetentionDays,
 		"cron":             req.Cron,
 		"enabled":          req.Enabled,
 	}
@@ -243,7 +244,7 @@ func (r *CentralRunner) GetDBJob(ctx context.Context, jobID string) (DBJobReques
 		Username: strField(m, "username"), Database: strField(m, "database"), SQLitePath: strField(m, "sqlite_path"),
 		Compression: strField(m, "compression"), DestPath: strField(m, "destination_path"), DestType: strField(m, "destination_type"),
 		SSHHost: strField(m, "ssh_host"), SSHPort: intField(m, "ssh_port"), SSHUser: strField(m, "ssh_user"), SSHKey: strField(m, "ssh_key_path"),
-		Cron: strField(m, "cron"), Enabled: boolField(m, "enabled"),
+		RetentionDays: intField(m, "retention_days"), Cron: strField(m, "cron"), Enabled: boolField(m, "enabled"),
 	}, nil
 }
 

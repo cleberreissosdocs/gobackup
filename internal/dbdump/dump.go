@@ -112,13 +112,27 @@ func Run(ctx context.Context, opts Options, destDir string, compression core.Com
 }
 
 func dumpBaseName(opts Options) string {
+	return namePrefix(opts) + time.Now().UTC().Format("20060102-150405")
+}
+
+// namePrefix returns the stable (non-timestamp) part of a dump's filename
+// — e.g. "postgresql-mydb-" — so retention cleanup can find exactly this
+// job's own past backups among whatever else may live in the destination
+// directory, without touching unrelated files.
+func namePrefix(opts Options) string {
 	name := opts.Database
 	if opts.Engine == core.EngineSQLite {
 		name = filepath.Base(opts.SQLitePath)
 	} else if name == core.AllDatabasesSentinel || name == "" {
 		name = "all-databases"
 	}
-	return fmt.Sprintf("%s-%s-%s", opts.Engine, name, time.Now().UTC().Format("20060102-150405"))
+	return fmt.Sprintf("%s-%s-", opts.Engine, name)
+}
+
+// NamePrefix is the exported form of namePrefix, used by the dbjob package
+// to scope retention cleanup to this job's own backup files.
+func NamePrefix(opts Options) string {
+	return namePrefix(opts)
 }
 
 func dumpSQLite(opts Options, w io.Writer) (int64, error) {
