@@ -38,6 +38,7 @@ func (s *Server) routes() {
 	s.Mux.HandleFunc("POST /api/v1/agents/{id}/commands", s.Auth.RequireLogin(s.handleEnqueueCommand))
 	s.Mux.HandleFunc("POST /api/v1/notification-channels", s.Auth.RequireLogin(s.handleCreateNotificationChannel))
 	s.Mux.HandleFunc("GET /", s.Auth.RequireLogin(s.handleDashboard))
+	s.Mux.HandleFunc("GET /dashboard", s.Auth.RequireLogin(s.handleHealthDashboard))
 	s.Mux.HandleFunc("POST /agents/{id}/delete", s.Auth.RequireLoginAndCSRF(s.handleDeleteAgent))
 	s.Mux.HandleFunc("GET /notifications", s.Auth.RequireLogin(s.handleNotificationsPage))
 	s.Mux.HandleFunc("POST /notifications", s.Auth.RequireLoginAndCSRF(s.handleNotificationsSubmit))
@@ -410,7 +411,7 @@ button.secondary:hover { background:#a83a3a; }
 </style>
 </head>
 <body>
-<nav><a href="/notifications">Canais de notificação</a>
+<nav><a href="/notifications">Canais de notificação</a> · <a href="/dashboard">Dashboard</a>
 <form class="logout" method="post" action="/logout"><button type="submit">Sair</button></form></nav>
 <h1>GoBackup Central — status dos servidores</h1>
 <table>
@@ -529,6 +530,144 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		CSRF   string
 	}{views, jobViews, s.Auth.CSRFToken(r)}); err != nil {
 		log.Println("dashboard: render:", err)
+	}
+}
+
+var healthDashboardTmpl = template.Must(template.New("health-dashboard").Parse(`<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="3">
+<title>GoBackup Central — Dashboard</title>
+<style>
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: radial-gradient(circle at 20% 0%, #1a1c24 0%, #0b0c10 55%);
+  color: #eee; margin: 0; padding: 2.5rem;
+}
+nav { margin-bottom: 1.5rem; }
+nav a { color:#9ad1ff; text-decoration:none; }
+nav a:hover { text-decoration:underline; }
+form.logout { display:inline; margin-left: 1rem; }
+button { background:#2d6cdf; color:#fff; border:none; padding:0.4rem 1rem; cursor:pointer; border-radius:4px; }
+h1 { margin: 0 0 0.3rem; font-weight: 700; letter-spacing: -0.02em; }
+.subtitle { color: #8a8f99; margin-bottom: 2rem; font-size: 0.95rem; }
+.grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 1.5rem; max-width: 1300px;
+}
+.card {
+  background: linear-gradient(160deg, #1c1e27 0%, #14151b 100%);
+  border: 1px solid #272a33; border-radius: 16px; padding: 1.8rem 1.5rem;
+  text-align: center; box-shadow: 0 8px 24px rgba(0,0,0,.45);
+  transition: transform .15s ease, border-color .15s ease;
+}
+.card:hover { transform: translateY(-3px); border-color: #3a3f4d; }
+.card h2 { margin: 0 0 1.4rem; font-size: 1.15rem; font-weight: 600; color: #f2f2f2; }
+.card .hostname { color:#6d7280; font-size:0.78rem; margin-top:-1.1rem; margin-bottom:1.3rem; }
+.indicators { display: flex; justify-content: center; gap: 2.2rem; }
+.indicator { display: flex; flex-direction: column; align-items: center; gap: 0.6rem; }
+.badge {
+  width: 76px; height: 76px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 2.1rem; color: #0b0c10;
+}
+.badge.green { background: radial-gradient(circle at 32% 28%, #7cf79a, #22b24a); box-shadow: 0 0 22px 5px rgba(46,204,113,.5); }
+.badge.red   { background: radial-gradient(circle at 32% 28%, #ff9d93, #d9332a); box-shadow: 0 0 22px 5px rgba(244,67,54,.55); }
+.badge.pulse { animation: pulse 1.8s infinite; }
+@keyframes pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(46,204,113,.55); }
+  70%  { box-shadow: 0 0 0 18px rgba(46,204,113,0); }
+  100% { box-shadow: 0 0 0 0 rgba(46,204,113,0); }
+}
+.badge.red.pulse {
+  animation: pulse-red 1.8s infinite;
+}
+@keyframes pulse-red {
+  0%   { box-shadow: 0 0 0 0 rgba(244,67,54,.55); }
+  70%  { box-shadow: 0 0 0 18px rgba(244,67,54,0); }
+  100% { box-shadow: 0 0 0 0 rgba(244,67,54,0); }
+}
+.label { font-size: 0.72rem; color: #9aa0ab; text-transform: uppercase; letter-spacing: 0.06em; }
+.sub { font-size: 0.75rem; color: #6d7280; margin-top: 0.15rem; }
+.empty { color: #777; }
+</style>
+</head>
+<body>
+<nav><a href="/">&larr; GoBackup Central</a> · <a href="/notifications">Canais de notificação</a>
+<form class="logout" method="post" action="/logout"><button type="submit">Sair</button></form></nav>
+<h1>Dashboard</h1>
+<p class="subtitle">Heartbeat e saúde de todos os servidores, em tempo real</p>
+<div class="grid">
+{{range .Cards}}
+<div class="card">
+  <h2>{{.Name}}</h2>
+  <div class="hostname">{{.Hostname}}</div>
+  <div class="indicators">
+    <div class="indicator">
+      <div class="badge {{if .Online}}green pulse{{else}}red{{end}}">&hearts;</div>
+      <div class="label">Heartbeat</div>
+      <div class="sub">{{if .Online}}online{{else}}offline{{end}} &middot; {{.LastSeen}}</div>
+    </div>
+    <div class="indicator">
+      <div class="badge {{if .HasFailure}}red{{else}}green{{end}}">{{if .HasFailure}}&#10006;{{else}}&#10004;{{end}}</div>
+      <div class="label">Saúde</div>
+      <div class="sub">{{if .HasFailure}}falha detectada{{else}}tudo ok{{end}}</div>
+    </div>
+  </div>
+</div>
+{{else}}
+<p class="empty">nenhum agente cadastrado ainda</p>
+{{end}}
+</div>
+</body>
+</html>`))
+
+type healthCardView struct {
+	Name       string
+	Hostname   string
+	Online     bool
+	LastSeen   string
+	HasFailure bool
+}
+
+// handleHealthDashboard renders the "bonito" big-icon dashboard: just
+// heartbeat (online/offline) and health (any job failed?) per agent, each
+// as a large red/green badge, for an at-a-glance wallboard view.
+func (s *Server) handleHealthDashboard(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	agents, err := s.Store.ListAgents(ctx)
+	if err != nil {
+		log.Println("health dashboard: list agents:", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	health, err := s.Store.GetAgentsHealth(ctx)
+	if err != nil {
+		log.Println("health dashboard: get agents health:", err) // non-fatal: everyone shows green
+	}
+
+	cards := make([]healthCardView, 0, len(agents))
+	for _, a := range agents {
+		lastSeen := "nunca"
+		if a.LastSeenAt != nil {
+			lastSeen = fmt.Sprintf("%s atrás", time.Since(*a.LastSeenAt).Round(time.Second))
+		}
+		cards = append(cards, healthCardView{
+			Name:       a.Name,
+			Hostname:   a.Hostname,
+			Online:     a.Status == "online",
+			LastSeen:   lastSeen,
+			HasFailure: health[a.ID],
+		})
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := healthDashboardTmpl.Execute(w, struct {
+		Cards []healthCardView
+	}{cards}); err != nil {
+		log.Println("health dashboard: render:", err)
 	}
 }
 
