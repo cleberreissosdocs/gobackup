@@ -195,7 +195,7 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
       <button type="button" class="secondary" onclick="gbOpenPicker('file_sshkey','{{.Base}}')">Escolher arquivo…</button>
     </div>
   </div>
-  <button type="submit">Criar e executar agora</button>
+  <button type="submit">Criar</button>
 </form>
 </fieldset>
 
@@ -253,8 +253,30 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
       <button type="button" class="secondary" onclick="gbOpenPicker('db_sshkey','{{.Base}}')">Escolher arquivo…</button>
     </div>
   </div>
-  <button type="submit">Criar e executar agora</button>
+  <button type="submit">Criar</button>
 </form>
+</fieldset>
+
+<fieldset>
+<legend>Tarefas</legend>
+<table>
+<tr><th>Nome</th><th>Tipo</th><th>Ação</th></tr>
+{{range .Jobs}}
+<tr>
+  <td>{{.Name}}</td>
+  <td>{{if eq .Kind "files"}}Arquivos{{else}}Banco de dados{{end}}</td>
+  <td>
+    <form method="post" action="{{$.Base}}/jobs/{{.ID}}/run" style="display:inline-flex; gap:0.5rem; align-items:center">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      {{if eq .Kind "database"}}<input type="password" name="password" placeholder="senha (se necessário)">{{end}}
+      <button type="submit">Executar</button>
+    </form>
+  </td>
+</tr>
+{{else}}
+<tr><td colspan="3">nenhuma tarefa criada ainda</td></tr>
+{{end}}
+</table>
 </fieldset>
 
 <fieldset>

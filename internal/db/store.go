@@ -96,23 +96,30 @@ func (s *Store) GetUserPasswordHash(ctx context.Context, email string) (uuid.UUI
 	return id, hash, nil
 }
 
-// CreateFileJob inserts (or reuses, by name) a job_kind=files backup job.
-func (s *Store) CreateFileJob(ctx context.Context, tenantID, agentID uuid.UUID, name, sourcePath, destPath string, backupType core.BackupType, cron string) (uuid.UUID, error) {
+// CreateFileJob inserts (or reuses, by name) a job_kind=files backup job,
+// persisting the full destination definition (not just source_path) so the
+// job can be re-run later from "Tarefas" without resubmitting the form.
+func (s *Store) CreateFileJob(ctx context.Context, tenantID, agentID uuid.UUID, name, sourcePath, destPath string, backupType core.BackupType, destType, linkDest, sshHost string, sshPort int, sshUser, sshKeyPath, cron string) (uuid.UUID, error) {
 	var jobID uuid.UUID
 	err := s.Pool.QueryRow(ctx, `
-		INSERT INTO backup_jobs (tenant_id, agent_id, name, job_kind, source_path, backup_type, schedule_cron, enabled)
-		VALUES ($1, $2, $3, 'files', $4, $5, $6, true)
+		INSERT INTO backup_jobs (tenant_id, agent_id, name, job_kind, source_path, backup_type, dest_path, dest_type, link_dest, ssh_host, ssh_port, ssh_user, ssh_key_path, schedule_cron, enabled)
+		VALUES ($1, $2, $3, 'files', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true)
 		ON CONFLICT DO NOTHING
 		RETURNING id
-	`, tenantID, agentID, name, sourcePath, string(backupType), cron).Scan(&jobID)
+	`, tenantID, agentID, name, sourcePath, string(backupType), destPath, destType, linkDest, sshHost, sshPort, sshUser, sshKeyPath, cron).Scan(&jobID)
 	if err != nil {
 		err = s.Pool.QueryRow(ctx, `SELECT id FROM backup_jobs WHERE agent_id=$1 AND name=$2`, agentID, name).Scan(&jobID)
 		if err != nil {
 			return uuid.Nil, fmt.Errorf("create file job: %w", err)
 		}
 	}
-	// keep destination path current for re-runs with a different --dest
-	_, _ = s.Pool.Exec(ctx, `UPDATE backup_jobs SET source_path=$1 WHERE id=$2`, sourcePath, jobID)
+	// keep the full definition current if the same name is reused with new settings
+	_, _ = s.Pool.Exec(ctx, `
+		UPDATE backup_jobs
+		SET source_path=$1, backup_type=$2, dest_path=$3, dest_type=$4, link_dest=$5,
+		    ssh_host=$6, ssh_port=$7, ssh_user=$8, ssh_key_path=$9, updated_at=now()
+		WHERE id=$10
+	`, sourcePath, string(backupType), destPath, destType, linkDest, sshHost, sshPort, sshUser, sshKeyPath, jobID)
 	return jobID, nil
 }
 
@@ -132,25 +139,177 @@ func (s *Store) CreateDBConnection(ctx context.Context, agentID uuid.UUID, name 
 			return uuid.Nil, fmt.Errorf("create db connection: %w", err)
 		}
 	}
+	// keep the connection details current if the same name is reused
+	_, _ = s.Pool.Exec(ctx, `
+		UPDATE db_connections
+		SET engine=$1, host=$2, port=$3, username=$4, database_name=$5, sqlite_path=$6
+		WHERE id=$7
+	`, string(engine), host, port, username, databaseName, sqlitePath, id)
 	return id, nil
 }
 
-// CreateDatabaseJob inserts (or reuses, by name) a job_kind=database backup job.
-func (s *Store) CreateDatabaseJob(ctx context.Context, tenantID, agentID, dbConnectionID uuid.UUID, name string, compression core.Compression, cron string) (uuid.UUID, error) {
+// CreateDatabaseJob inserts (or reuses, by name) a job_kind=database backup
+// job, persisting the dump destination too (dest_path/type/ssh_*) so it can
+// be re-run later without resubmitting the form.
+func (s *Store) CreateDatabaseJob(ctx context.Context, tenantID, agentID, dbConnectionID uuid.UUID, name string, compression core.Compression, destPath, destType, sshHost string, sshPort int, sshUser, sshKeyPath, cron string) (uuid.UUID, error) {
 	var jobID uuid.UUID
 	err := s.Pool.QueryRow(ctx, `
-		INSERT INTO backup_jobs (tenant_id, agent_id, name, job_kind, db_connection_id, compression, schedule_cron, enabled)
-		VALUES ($1, $2, $3, 'database', $4, $5, $6, true)
+		INSERT INTO backup_jobs (tenant_id, agent_id, name, job_kind, db_connection_id, compression, dest_path, dest_type, ssh_host, ssh_port, ssh_user, ssh_key_path, schedule_cron, enabled)
+		VALUES ($1, $2, $3, 'database', $4, $5, $6, $7, $8, $9, $10, $11, $12, true)
 		ON CONFLICT DO NOTHING
 		RETURNING id
-	`, tenantID, agentID, name, dbConnectionID, string(compression), cron).Scan(&jobID)
+	`, tenantID, agentID, name, dbConnectionID, string(compression), destPath, destType, sshHost, sshPort, sshUser, sshKeyPath, cron).Scan(&jobID)
 	if err != nil {
 		err = s.Pool.QueryRow(ctx, `SELECT id FROM backup_jobs WHERE agent_id=$1 AND name=$2`, agentID, name).Scan(&jobID)
 		if err != nil {
 			return uuid.Nil, fmt.Errorf("create database job: %w", err)
 		}
 	}
+	_, _ = s.Pool.Exec(ctx, `
+		UPDATE backup_jobs
+		SET db_connection_id=$1, compression=$2, dest_path=$3, dest_type=$4,
+		    ssh_host=$5, ssh_port=$6, ssh_user=$7, ssh_key_path=$8, updated_at=now()
+		WHERE id=$9
+	`, dbConnectionID, string(compression), destPath, destType, sshHost, sshPort, sshUser, sshKeyPath, jobID)
 	return jobID, nil
+}
+
+// JobSummary is a lightweight row for the "Tarefas" list.
+type JobSummary struct {
+	ID        uuid.UUID
+	Name      string
+	Kind      string // files|database
+	CreatedAt time.Time
+}
+
+// ListJobs returns every backup job defined for an agent, newest first.
+func (s *Store) ListJobs(ctx context.Context, agentID uuid.UUID) ([]JobSummary, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT id, name, job_kind, created_at FROM backup_jobs WHERE agent_id=$1 ORDER BY created_at DESC
+	`, agentID)
+	if err != nil {
+		return nil, fmt.Errorf("list jobs: %w", err)
+	}
+	defer rows.Close()
+	var out []JobSummary
+	for rows.Next() {
+		var j JobSummary
+		if err := rows.Scan(&j.ID, &j.Name, &j.Kind, &j.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, j)
+	}
+	return out, nil
+}
+
+// GetJobKind returns whether a job is "files" or "database", so the caller
+// knows which of GetFileJobDetails/GetDBJobDetails to use.
+func (s *Store) GetJobKind(ctx context.Context, jobID uuid.UUID) (string, error) {
+	var kind string
+	err := s.Pool.QueryRow(ctx, `SELECT job_kind FROM backup_jobs WHERE id=$1`, jobID).Scan(&kind)
+	if err != nil {
+		return "", fmt.Errorf("get job kind: %w", err)
+	}
+	return kind, nil
+}
+
+// FileJobDetails is everything needed to re-run a persisted file job.
+type FileJobDetails struct {
+	Name       string
+	Source     string
+	Dest       string
+	BackupType string
+	LinkDest   string
+	DestType   string
+	SSHHost    string
+	SSHPort    int
+	SSHUser    string
+	SSHKey     string
+}
+
+func (s *Store) GetFileJobDetails(ctx context.Context, jobID uuid.UUID) (FileJobDetails, error) {
+	var d FileJobDetails
+	var linkDest, destType, sshHost, sshUser, sshKey *string
+	var sshPort *int
+	err := s.Pool.QueryRow(ctx, `
+		SELECT name, source_path, dest_path, backup_type, link_dest, dest_type, ssh_host, ssh_port, ssh_user, ssh_key_path
+		FROM backup_jobs WHERE id=$1 AND job_kind='files'
+	`, jobID).Scan(&d.Name, &d.Source, &d.Dest, &d.BackupType, &linkDest, &destType, &sshHost, &sshPort, &sshUser, &sshKey)
+	if err != nil {
+		return d, fmt.Errorf("get file job details: %w", err)
+	}
+	if linkDest != nil {
+		d.LinkDest = *linkDest
+	}
+	if destType != nil {
+		d.DestType = *destType
+	}
+	if sshHost != nil {
+		d.SSHHost = *sshHost
+	}
+	if sshPort != nil {
+		d.SSHPort = *sshPort
+	}
+	if sshUser != nil {
+		d.SSHUser = *sshUser
+	}
+	if sshKey != nil {
+		d.SSHKey = *sshKey
+	}
+	return d, nil
+}
+
+// DBJobDetails is everything needed to re-run a persisted database job,
+// EXCEPT the password — that is never persisted, and must be supplied again
+// at run time (unless the engine is sqlite/trust-auth, which needs none).
+type DBJobDetails struct {
+	Name        string
+	Engine      string
+	Host        string
+	Port        int
+	Username    string
+	Database    string
+	SQLitePath  string
+	Compression string
+	DestPath    string
+	DestType    string
+	SSHHost     string
+	SSHPort     int
+	SSHUser     string
+	SSHKey      string
+}
+
+func (s *Store) GetDBJobDetails(ctx context.Context, jobID uuid.UUID) (DBJobDetails, error) {
+	var d DBJobDetails
+	var destType, sshHost, sshUser, sshKey *string
+	var sshPort *int
+	err := s.Pool.QueryRow(ctx, `
+		SELECT bj.name, dc.engine, dc.host, dc.port, dc.username, dc.database_name, dc.sqlite_path,
+		       bj.compression, bj.dest_path, bj.dest_type, bj.ssh_host, bj.ssh_port, bj.ssh_user, bj.ssh_key_path
+		FROM backup_jobs bj
+		JOIN db_connections dc ON dc.id = bj.db_connection_id
+		WHERE bj.id=$1 AND bj.job_kind='database'
+	`, jobID).Scan(&d.Name, &d.Engine, &d.Host, &d.Port, &d.Username, &d.Database, &d.SQLitePath,
+		&d.Compression, &d.DestPath, &destType, &sshHost, &sshPort, &sshUser, &sshKey)
+	if err != nil {
+		return d, fmt.Errorf("get db job details: %w", err)
+	}
+	if destType != nil {
+		d.DestType = *destType
+	}
+	if sshHost != nil {
+		d.SSHHost = *sshHost
+	}
+	if sshPort != nil {
+		d.SSHPort = *sshPort
+	}
+	if sshUser != nil {
+		d.SSHUser = *sshUser
+	}
+	if sshKey != nil {
+		d.SSHKey = *sshKey
+	}
+	return d, nil
 }
 
 // StartExecution records a new running execution for a job.

@@ -37,6 +37,7 @@ func (s *Site) Mount(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("GET "+prefix+"/browse.json", s.Auth.RequireLogin(s.handleBrowseJSON))
 	mux.HandleFunc("POST "+prefix+"/jobs/file", s.Auth.RequireLoginAndCSRF(s.handleCreateFileJob))
 	mux.HandleFunc("POST "+prefix+"/jobs/db", s.Auth.RequireLoginAndCSRF(s.handleCreateDBJob))
+	mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/run", s.Auth.RequireLoginAndCSRF(s.handleRunJob))
 }
 
 func (s *Site) handleLoginForm(w http.ResponseWriter, r *http.Request) {
@@ -68,11 +69,13 @@ func (s *Site) handleHome(w http.ResponseWriter, r *http.Request) {
 	}
 
 	activity, _ := runner.RecentActivity(ctx, 15)
+	jobs, _ := runner.ListJobs(ctx)
 
 	s.renderPage(w, r, "GoBackup — "+name, homeTmpl, map[string]any{
 		"Name":     name,
 		"Base":     s.base(r),
 		"Activity": activity,
+		"Jobs":     jobs,
 		"CSRF":     s.Auth.CSRFToken(r),
 	})
 }
@@ -136,8 +139,10 @@ func (s *Site) handleBrowseJSON(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// handleCreateFileJob only PERSISTS the job definition — it does not run
+// it. Use the "Executar" button on the saved job (handleRunJob) for that.
 func (s *Site) handleCreateFileJob(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 	runner, name, err := s.GetRunner(r)
 	if err != nil {
@@ -158,9 +163,11 @@ func (s *Site) handleCreateFileJob(w http.ResponseWriter, r *http.Request) {
 	}
 	req.SSHPort, _ = strconv.Atoi(r.FormValue("ssh_port"))
 
-	outcome, err := runner.RunFileJob(ctx, req)
-	if err != nil {
+	var outcome JobOutcome
+	if _, err := runner.CreateFileJob(ctx, req); err != nil {
 		outcome = JobOutcome{Status: "failed", Message: err.Error()}
+	} else {
+		outcome = JobOutcome{Status: "success", Message: "Tarefa \"" + req.Name + "\" criada. Use o botão \"Executar\" na lista de tarefas para rodá-la."}
 	}
 
 	s.renderPage(w, r, "Resultado — "+name, outcomeTmpl, map[string]any{
@@ -168,8 +175,10 @@ func (s *Site) handleCreateFileJob(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleCreateDBJob only PERSISTS the job definition — it does not run it
+// (and the password is never stored; it's asked again when running).
 func (s *Site) handleCreateDBJob(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 	runner, name, err := s.GetRunner(r)
 	if err != nil {
@@ -198,13 +207,39 @@ func (s *Site) handleCreateDBJob(w http.ResponseWriter, r *http.Request) {
 		req.Database = "__ALL__"
 	}
 
-	outcome, err := runner.RunDBJob(ctx, req)
+	var outcome JobOutcome
+	if _, err := runner.CreateDBJob(ctx, req); err != nil {
+		outcome = JobOutcome{Status: "failed", Message: err.Error()}
+	} else {
+		outcome = JobOutcome{Status: "success", Message: "Tarefa \"" + req.Name + "\" criada. Use o botão \"Executar\" na lista de tarefas para rodá-la."}
+	}
+
+	s.renderPage(w, r, "Resultado — "+name, outcomeTmpl, map[string]any{
+		"Name": name, "Base": s.base(r), "Outcome": outcome, "JobName": req.Name,
+	})
+}
+
+// handleRunJob executes an already-created job (the "Executar" button next
+// to each row in the "Tarefas" list on the home page).
+func (s *Site) handleRunJob(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	runner, name, err := s.GetRunner(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	jobID := r.PathValue("jobID")
+	r.ParseForm()
+	password := r.FormValue("password")
+
+	outcome, err := runner.RunJob(ctx, jobID, password)
 	if err != nil {
 		outcome = JobOutcome{Status: "failed", Message: err.Error()}
 	}
 
 	s.renderPage(w, r, "Resultado — "+name, outcomeTmpl, map[string]any{
-		"Name": name, "Base": s.base(r), "Outcome": outcome, "JobName": req.Name,
+		"Name": name, "Base": s.base(r), "Outcome": outcome, "JobName": jobID,
 	})
 }
 

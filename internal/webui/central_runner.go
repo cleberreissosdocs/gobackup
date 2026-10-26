@@ -111,8 +111,9 @@ func (r *CentralRunner) lastCommandResult(ctx context.Context, cmdType string) (
 	return "", map[string]any{}, nil
 }
 
-func (r *CentralRunner) RunFileJob(ctx context.Context, req FileJobRequest) (JobOutcome, error) {
+func (r *CentralRunner) CreateFileJob(ctx context.Context, req FileJobRequest) (string, error) {
 	payload := map[string]any{
+		"kind":             "files",
 		"name":             req.Name,
 		"source_path":      req.Source,
 		"destination_path": req.Dest,
@@ -124,17 +125,29 @@ func (r *CentralRunner) RunFileJob(ctx context.Context, req FileJobRequest) (Job
 		"ssh_user":         req.SSHUser,
 		"ssh_key_path":     req.SSHKey,
 	}
-	return r.enqueueAndWait(ctx, "start_job", payload)
+	outcome, err := r.enqueueAndWait(ctx, "create_job", payload)
+	if err != nil {
+		return "", err
+	}
+	if outcome.Status != "success" {
+		return "", fmt.Errorf("%s", outcome.Message)
+	}
+	_, result, err := r.lastCommandResult(ctx, "create_job")
+	if err != nil {
+		return "", err
+	}
+	jobID, _ := result["job_id"].(string)
+	return jobID, nil
 }
 
-func (r *CentralRunner) RunDBJob(ctx context.Context, req DBJobRequest) (JobOutcome, error) {
+func (r *CentralRunner) CreateDBJob(ctx context.Context, req DBJobRequest) (string, error) {
 	payload := map[string]any{
+		"kind":             "database",
 		"name":             req.Name,
 		"engine":           req.Engine,
 		"host":             req.Host,
 		"port":             req.Port,
 		"username":         req.Username,
-		"password":         req.Password,
 		"database":         req.Database,
 		"sqlite_path":      req.SQLitePath,
 		"compression":      req.Compression,
@@ -145,7 +158,50 @@ func (r *CentralRunner) RunDBJob(ctx context.Context, req DBJobRequest) (JobOutc
 		"ssh_user":         req.SSHUser,
 		"ssh_key_path":     req.SSHKey,
 	}
-	return r.enqueueAndWait(ctx, "start_db_job", payload)
+	outcome, err := r.enqueueAndWait(ctx, "create_job", payload)
+	if err != nil {
+		return "", err
+	}
+	if outcome.Status != "success" {
+		return "", fmt.Errorf("%s", outcome.Message)
+	}
+	_, result, err := r.lastCommandResult(ctx, "create_job")
+	if err != nil {
+		return "", err
+	}
+	jobID, _ := result["job_id"].(string)
+	return jobID, nil
+}
+
+func (r *CentralRunner) ListJobs(ctx context.Context) ([]JobSummary, error) {
+	outcome, err := r.enqueueAndWait(ctx, "list_jobs", map[string]any{})
+	if err != nil {
+		return nil, err
+	}
+	if outcome.Status != "success" {
+		return nil, fmt.Errorf("%s", outcome.Message)
+	}
+	_, result, err := r.lastCommandResult(ctx, "list_jobs")
+	if err != nil {
+		return nil, err
+	}
+	jobsRaw, _ := result["jobs"].([]any)
+	out := make([]JobSummary, 0, len(jobsRaw))
+	for _, j := range jobsRaw {
+		m, ok := j.(map[string]any)
+		if !ok {
+			continue
+		}
+		id, _ := m["id"].(string)
+		name, _ := m["name"].(string)
+		kind, _ := m["kind"].(string)
+		out = append(out, JobSummary{ID: id, Name: name, Kind: kind})
+	}
+	return out, nil
+}
+
+func (r *CentralRunner) RunJob(ctx context.Context, jobID, password string) (JobOutcome, error) {
+	return r.enqueueAndWait(ctx, "run_job", map[string]any{"job_id": jobID, "password": password})
 }
 
 func (r *CentralRunner) RecentActivity(ctx context.Context, limit int) ([]ActivityItem, error) {

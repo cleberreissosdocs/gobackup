@@ -115,7 +115,8 @@ func cmdRun(args []string) {
 		fatal(err.Error())
 	}
 
-	jobID, err := store.CreateFileJob(ctx, tenantID, agentID, *name, *source, *dest, bt, *cron)
+	jobID, err := store.CreateFileJob(ctx, tenantID, agentID, *name, *source, *dest, bt,
+		*destType, *linkDest, *sshHost, *sshPort, *sshUser, *sshKey, *cron)
 	if err != nil {
 		fatal(err.Error())
 	}
@@ -350,7 +351,8 @@ func cmdRunDB(args []string) {
 	if err != nil {
 		fatal(err.Error())
 	}
-	jobID, err := store.CreateDatabaseJob(ctx, tenantID, agentID, connID, *name, core.Compression(*compression), "")
+	jobID, err := store.CreateDatabaseJob(ctx, tenantID, agentID, connID, *name, core.Compression(*compression),
+		*dest, *destType, *sshHost, *sshPort, *sshUser, *sshKey, "")
 	if err != nil {
 		fatal(err.Error())
 	}
