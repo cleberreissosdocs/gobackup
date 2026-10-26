@@ -501,6 +501,7 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
       <button type="button" class="secondary" onclick="gbOpenPicker('file_dest','{{.Base}}')">Escolher diretório…</button>
     </div>
   </div>
+  <div><label><input type="hidden" name="delete_extraneous_present" value="1"><input type="checkbox" name="delete_extraneous" checked> Apagar no destino o que não existe mais na origem (mirror exato, rsync --delete)</label></div>
   <div>Tipo de destino:
     <select name="dest_type" class="gb-dest-type" onchange="gbToggleSSHFields(this)">
       <option value="local">Local</option>
@@ -674,6 +675,7 @@ var editFileTmpl = template.Must(template.New("edit-file").Funcs(funcs).Parse(`
       <button type="button" class="secondary" onclick="gbOpenPicker('efile_dest','{{.Base}}')">Escolher diretório…</button>
     </div>
   </div>
+  <div><label><input type="hidden" name="delete_extraneous_present" value="1"><input type="checkbox" name="delete_extraneous" {{if .Job.DeleteExtraneous}}checked{{end}}> Apagar no destino o que não existe mais na origem (mirror exato, rsync --delete)</label></div>
   <div>Tipo de destino:
     <select name="dest_type" class="gb-dest-type" onchange="gbToggleSSHFields(this)">
       <option value="local" {{if eq .Job.DestType "local"}}selected{{end}}>Local</option>

@@ -114,20 +114,26 @@ type ProgressFunc func(percent int, line string)
 //     baseline (linkDestPath points at the last FULL backup instead of the
 //     last run).
 //
-// linkDestPath may be empty for a full backup. Note: for an ssh destination,
-// --link-dest is resolved on the REMOTE host, so it must be a path on that
-// host, not on the agent running rsync. onProgress may be nil.
-func Run(ctx context.Context, sourcePath string, dest Destination, backupType core.BackupType, linkDestPath string, onProgress ProgressFunc) (Result, error) {
+// linkDestPath may be empty for a full backup. deleteExtraneous controls
+// whether files that exist at the destination but no longer exist at the
+// source are removed (rsync's --delete) — i.e. whether the destination
+// stays an EXACT mirror of the source, or just accumulates/overwrites
+// without ever pruning. Note: for an ssh destination, --link-dest is
+// resolved on the REMOTE host, so it must be a path on that host, not on
+// the agent running rsync. onProgress may be nil.
+func Run(ctx context.Context, sourcePath string, dest Destination, backupType core.BackupType, linkDestPath string, deleteExtraneous bool, onProgress ProgressFunc) (Result, error) {
 	target, extraArgs, err := dest.rsyncArgs()
 	if err != nil {
 		return Result{}, fmt.Errorf("invalid destination: %w", err)
 	}
 
 	args := []string{
-		"-a",       // archive mode: recursive, preserves perms/times/symlinks
-		"--delete", // mirror deletions too
-		"--stats",  // machine-ish parsable summary at the end
+		"-a",      // archive mode: recursive, preserves perms/times/symlinks
+		"--stats", // machine-ish parsable summary at the end
 		"--info=progress2",
+	}
+	if deleteExtraneous {
+		args = append(args, "--delete") // mirror deletions too
 	}
 	args = append(args, extraArgs...)
 	if backupType != core.BackupFull && linkDestPath != "" {

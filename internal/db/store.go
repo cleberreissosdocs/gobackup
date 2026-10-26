@@ -99,14 +99,14 @@ func (s *Store) GetUserPasswordHash(ctx context.Context, email string) (uuid.UUI
 // CreateFileJob inserts (or reuses, by name) a job_kind=files backup job,
 // persisting the full destination definition (not just source_path) so the
 // job can be re-run later from "Tarefas" without resubmitting the form.
-func (s *Store) CreateFileJob(ctx context.Context, tenantID, agentID uuid.UUID, name, sourcePath, destPath string, backupType core.BackupType, destType, linkDest, sshHost string, sshPort int, sshUser, sshKeyPath, cron string) (uuid.UUID, error) {
+func (s *Store) CreateFileJob(ctx context.Context, tenantID, agentID uuid.UUID, name, sourcePath, destPath string, backupType core.BackupType, destType, linkDest string, deleteExtraneous bool, sshHost string, sshPort int, sshUser, sshKeyPath, cron string) (uuid.UUID, error) {
 	var jobID uuid.UUID
 	err := s.Pool.QueryRow(ctx, `
-		INSERT INTO backup_jobs (tenant_id, agent_id, name, job_kind, source_path, backup_type, dest_path, dest_type, link_dest, ssh_host, ssh_port, ssh_user, ssh_key_path, schedule_cron, enabled)
-		VALUES ($1, $2, $3, 'files', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true)
+		INSERT INTO backup_jobs (tenant_id, agent_id, name, job_kind, source_path, backup_type, dest_path, dest_type, link_dest, delete_extraneous, ssh_host, ssh_port, ssh_user, ssh_key_path, schedule_cron, enabled)
+		VALUES ($1, $2, $3, 'files', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, true)
 		ON CONFLICT DO NOTHING
 		RETURNING id
-	`, tenantID, agentID, name, sourcePath, string(backupType), destPath, destType, linkDest, sshHost, sshPort, sshUser, sshKeyPath, cron).Scan(&jobID)
+	`, tenantID, agentID, name, sourcePath, string(backupType), destPath, destType, linkDest, deleteExtraneous, sshHost, sshPort, sshUser, sshKeyPath, cron).Scan(&jobID)
 	if err != nil {
 		err = s.Pool.QueryRow(ctx, `SELECT id FROM backup_jobs WHERE agent_id=$1 AND name=$2`, agentID, name).Scan(&jobID)
 		if err != nil {
@@ -116,10 +116,10 @@ func (s *Store) CreateFileJob(ctx context.Context, tenantID, agentID uuid.UUID, 
 	// keep the full definition current if the same name is reused with new settings
 	_, _ = s.Pool.Exec(ctx, `
 		UPDATE backup_jobs
-		SET source_path=$1, backup_type=$2, dest_path=$3, dest_type=$4, link_dest=$5,
-		    ssh_host=$6, ssh_port=$7, ssh_user=$8, ssh_key_path=$9, updated_at=now()
-		WHERE id=$10
-	`, sourcePath, string(backupType), destPath, destType, linkDest, sshHost, sshPort, sshUser, sshKeyPath, jobID)
+		SET source_path=$1, backup_type=$2, dest_path=$3, dest_type=$4, link_dest=$5, delete_extraneous=$6,
+		    ssh_host=$7, ssh_port=$8, ssh_user=$9, ssh_key_path=$10, updated_at=now()
+		WHERE id=$11
+	`, sourcePath, string(backupType), destPath, destType, linkDest, deleteExtraneous, sshHost, sshPort, sshUser, sshKeyPath, jobID)
 	return jobID, nil
 }
 
@@ -271,18 +271,19 @@ func (s *Store) GetJobKind(ctx context.Context, jobID uuid.UUID) (string, error)
 
 // FileJobDetails is everything needed to re-run or edit a persisted file job.
 type FileJobDetails struct {
-	Name       string
-	Source     string
-	Dest       string
-	BackupType string
-	LinkDest   string
-	DestType   string
-	SSHHost    string
-	SSHPort    int
-	SSHUser    string
-	SSHKey     string
-	Cron       string
-	Enabled    bool
+	Name             string
+	Source           string
+	Dest             string
+	BackupType       string
+	LinkDest         string
+	DeleteExtraneous bool
+	DestType         string
+	SSHHost          string
+	SSHPort          int
+	SSHUser          string
+	SSHKey           string
+	Cron             string
+	Enabled          bool
 }
 
 func (s *Store) GetFileJobDetails(ctx context.Context, jobID uuid.UUID) (FileJobDetails, error) {
@@ -290,9 +291,9 @@ func (s *Store) GetFileJobDetails(ctx context.Context, jobID uuid.UUID) (FileJob
 	var linkDest, destType, sshHost, sshUser, sshKey *string
 	var sshPort *int
 	err := s.Pool.QueryRow(ctx, `
-		SELECT name, source_path, dest_path, backup_type, link_dest, dest_type, ssh_host, ssh_port, ssh_user, ssh_key_path, schedule_cron, enabled
+		SELECT name, source_path, dest_path, backup_type, link_dest, delete_extraneous, dest_type, ssh_host, ssh_port, ssh_user, ssh_key_path, schedule_cron, enabled
 		FROM backup_jobs WHERE id=$1 AND job_kind='files'
-	`, jobID).Scan(&d.Name, &d.Source, &d.Dest, &d.BackupType, &linkDest, &destType, &sshHost, &sshPort, &sshUser, &sshKey, &d.Cron, &d.Enabled)
+	`, jobID).Scan(&d.Name, &d.Source, &d.Dest, &d.BackupType, &linkDest, &d.DeleteExtraneous, &destType, &sshHost, &sshPort, &sshUser, &sshKey, &d.Cron, &d.Enabled)
 	if err != nil {
 		return d, fmt.Errorf("get file job details: %w", err)
 	}
@@ -425,13 +426,13 @@ func (s *Store) GetLatestExecution(ctx context.Context, jobID uuid.UUID) (Latest
 
 // UpdateFileJobByID overwrites an existing file job's definition in place
 // (used by the "Editar" form — unlike CreateFileJob, this never inserts).
-func (s *Store) UpdateFileJobByID(ctx context.Context, jobID uuid.UUID, name, sourcePath, destPath string, backupType core.BackupType, destType, linkDest, sshHost string, sshPort int, sshUser, sshKeyPath, cron string, enabled bool) error {
+func (s *Store) UpdateFileJobByID(ctx context.Context, jobID uuid.UUID, name, sourcePath, destPath string, backupType core.BackupType, destType, linkDest string, deleteExtraneous bool, sshHost string, sshPort int, sshUser, sshKeyPath, cron string, enabled bool) error {
 	_, err := s.Pool.Exec(ctx, `
 		UPDATE backup_jobs
-		SET name=$1, source_path=$2, dest_path=$3, backup_type=$4, dest_type=$5, link_dest=$6,
-		    ssh_host=$7, ssh_port=$8, ssh_user=$9, ssh_key_path=$10, schedule_cron=$11, enabled=$12, updated_at=now()
-		WHERE id=$13 AND job_kind='files'
-	`, name, sourcePath, destPath, string(backupType), destType, linkDest, sshHost, sshPort, sshUser, sshKeyPath, cron, enabled, jobID)
+		SET name=$1, source_path=$2, dest_path=$3, backup_type=$4, dest_type=$5, link_dest=$6, delete_extraneous=$7,
+		    ssh_host=$8, ssh_port=$9, ssh_user=$10, ssh_key_path=$11, schedule_cron=$12, enabled=$13, updated_at=now()
+		WHERE id=$14 AND job_kind='files'
+	`, name, sourcePath, destPath, string(backupType), destType, linkDest, deleteExtraneous, sshHost, sshPort, sshUser, sshKeyPath, cron, enabled, jobID)
 	if err != nil {
 		return fmt.Errorf("update file job: %w", err)
 	}

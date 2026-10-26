@@ -57,7 +57,7 @@ func (r *LocalRunner) CreateFileJob(ctx context.Context, req FileJobRequest) (st
 		return "", err
 	}
 	jobID, err := r.Store.CreateFileJob(ctx, r.TenantID, r.AgentID, req.Name, req.Source, req.Dest,
-		core.BackupType(req.BackupType), req.DestType, req.LinkDest, req.SSHHost, req.SSHPort, req.SSHUser, req.SSHKey, req.Cron)
+		core.BackupType(req.BackupType), req.DestType, req.LinkDest, req.DeleteExtraneous, req.SSHHost, req.SSHPort, req.SSHUser, req.SSHKey, req.Cron)
 	if err != nil {
 		return "", err
 	}
@@ -103,7 +103,7 @@ func (r *LocalRunner) GetFileJob(ctx context.Context, jobIDStr string) (FileJobR
 		return FileJobRequest{}, err
 	}
 	return FileJobRequest{
-		Name: d.Name, Source: d.Source, Dest: d.Dest, BackupType: d.BackupType, LinkDest: d.LinkDest,
+		Name: d.Name, Source: d.Source, Dest: d.Dest, BackupType: d.BackupType, LinkDest: d.LinkDest, DeleteExtraneous: d.DeleteExtraneous,
 		DestType: d.DestType, SSHHost: d.SSHHost, SSHPort: d.SSHPort, SSHUser: d.SSHUser, SSHKey: d.SSHKey,
 		Cron: d.Cron, Enabled: d.Enabled,
 	}, nil
@@ -139,7 +139,7 @@ func (r *LocalRunner) UpdateFileJob(ctx context.Context, jobIDStr string, req Fi
 		return err
 	}
 	return r.Store.UpdateFileJobByID(ctx, jobID, req.Name, req.Source, req.Dest, core.BackupType(req.BackupType),
-		req.DestType, req.LinkDest, req.SSHHost, req.SSHPort, req.SSHUser, req.SSHKey, req.Cron, req.Enabled)
+		req.DestType, req.LinkDest, req.DeleteExtraneous, req.SSHHost, req.SSHPort, req.SSHUser, req.SSHKey, req.Cron, req.Enabled)
 }
 
 func (r *LocalRunner) UpdateDBJob(ctx context.Context, jobIDStr string, req DBJobRequest) error {

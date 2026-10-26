@@ -88,7 +88,7 @@ func (e *Engine) runFile(ctx context.Context, jobID uuid.UUID, jobIDStr string, 
 	}
 
 	lastUpdate := time.Now()
-	res, runErr := backup.Run(ctx, d.Source, destination, core.BackupType(d.BackupType), d.LinkDest, func(pct int, line string) {
+	res, runErr := backup.Run(ctx, d.Source, destination, core.BackupType(d.BackupType), d.LinkDest, d.DeleteExtraneous, func(pct int, line string) {
 		// throttle registry writes to a few per second — plenty for a 1s UI poll
 		if time.Since(lastUpdate) < 200*time.Millisecond && pct != 100 {
 			return

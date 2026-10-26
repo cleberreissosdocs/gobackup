@@ -116,18 +116,19 @@ func (r *CentralRunner) lastCommandResult(ctx context.Context, cmdType string) (
 
 func fileJobPayload(req FileJobRequest) map[string]any {
 	return map[string]any{
-		"name":             req.Name,
-		"source_path":      req.Source,
-		"destination_path": req.Dest,
-		"backup_type":      req.BackupType,
-		"link_dest":        req.LinkDest,
-		"destination_type": req.DestType,
-		"ssh_host":         req.SSHHost,
-		"ssh_port":         req.SSHPort,
-		"ssh_user":         req.SSHUser,
-		"ssh_key_path":     req.SSHKey,
-		"cron":             req.Cron,
-		"enabled":          req.Enabled,
+		"name":              req.Name,
+		"source_path":       req.Source,
+		"destination_path":  req.Dest,
+		"backup_type":       req.BackupType,
+		"link_dest":         req.LinkDest,
+		"delete_extraneous": req.DeleteExtraneous,
+		"destination_type":  req.DestType,
+		"ssh_host":          req.SSHHost,
+		"ssh_port":          req.SSHPort,
+		"ssh_user":          req.SSHUser,
+		"ssh_key_path":      req.SSHKey,
+		"cron":              req.Cron,
+		"enabled":           req.Enabled,
 	}
 }
 
@@ -219,7 +220,7 @@ func (r *CentralRunner) GetFileJob(ctx context.Context, jobID string) (FileJobRe
 	}
 	return FileJobRequest{
 		Name: strField(m, "name"), Source: strField(m, "source_path"), Dest: strField(m, "destination_path"),
-		BackupType: strField(m, "backup_type"), LinkDest: strField(m, "link_dest"), DestType: strField(m, "destination_type"),
+		BackupType: strField(m, "backup_type"), LinkDest: strField(m, "link_dest"), DeleteExtraneous: boolField(m, "delete_extraneous"), DestType: strField(m, "destination_type"),
 		SSHHost: strField(m, "ssh_host"), SSHPort: intField(m, "ssh_port"), SSHUser: strField(m, "ssh_user"), SSHKey: strField(m, "ssh_key_path"),
 		Cron: strField(m, "cron"), Enabled: boolField(m, "enabled"),
 	}, nil

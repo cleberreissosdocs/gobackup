@@ -157,12 +157,19 @@ func fileJobFromForm(r *http.Request) FileJobRequest {
 		// without a schema change.
 		BackupType: "full",
 		LinkDest:   "",
-		DestType:   r.FormValue("dest_type"),
-		SSHHost:    r.FormValue("ssh_host"),
-		SSHUser:    r.FormValue("ssh_user"),
-		SSHKey:     r.FormValue("ssh_key"),
-		Cron:       r.FormValue("cron"),
-		Enabled:    r.FormValue("enabled") == "on",
+		// DeleteExtraneous controls rsync's --delete: whether files that
+		// exist at the destination but no longer exist at the source get
+		// removed, keeping dest an exact mirror of source. Checkbox is
+		// unchecked => absent from the form, so default to true (the
+		// previous hardcoded behavior) when the box isn't present at all
+		// (e.g. a stale client), but respect an explicit uncheck.
+		DeleteExtraneous: r.FormValue("delete_extraneous_present") == "" || r.FormValue("delete_extraneous") == "on",
+		DestType:         r.FormValue("dest_type"),
+		SSHHost:          r.FormValue("ssh_host"),
+		SSHUser:          r.FormValue("ssh_user"),
+		SSHKey:           r.FormValue("ssh_key"),
+		Cron:             r.FormValue("cron"),
+		Enabled:          r.FormValue("enabled") == "on",
 	}
 	req.SSHPort, _ = strconv.Atoi(r.FormValue("ssh_port"))
 	return req

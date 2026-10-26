@@ -91,6 +91,7 @@ func cmdRun(args []string) {
 	sshPort := fs.Int("ssh-port", 22, "ssh destination port (dest-type=ssh)")
 	sshUser := fs.String("ssh-user", "", "ssh destination user (dest-type=ssh)")
 	sshKey := fs.String("ssh-key", "", "ssh private key path (dest-type=ssh)")
+	deleteExtraneous := fs.Bool("delete-extraneous", true, "rsync --delete: remove from dest what no longer exists at source")
 	fs.Parse(args)
 
 	if *connString == "" || *name == "" || *source == "" || *dest == "" {
@@ -119,7 +120,7 @@ func cmdRun(args []string) {
 	}
 
 	jobID, err := store.CreateFileJob(ctx, tenantID, agentID, *name, *source, *dest, bt,
-		*destType, *linkDest, *sshHost, *sshPort, *sshUser, *sshKey, *cron)
+		*destType, *linkDest, *deleteExtraneous, *sshHost, *sshPort, *sshUser, *sshKey, *cron)
 	if err != nil {
 		fatal(err.Error())
 	}
@@ -135,7 +136,7 @@ func cmdRun(args []string) {
 	if err != nil {
 		fatal(err.Error())
 	}
-	res, runErr := backup.Run(ctx, *source, destination, bt, *linkDest, nil)
+	res, runErr := backup.Run(ctx, *source, destination, bt, *linkDest, *deleteExtraneous, nil)
 	elapsed := time.Since(start)
 
 	if runErr != nil {

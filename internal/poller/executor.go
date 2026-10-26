@@ -123,8 +123,9 @@ func (e *Executor) createJob(ctx context.Context, payload map[string]any) (map[s
 		if backupType == "" {
 			backupType = string(core.BackupFull)
 		}
+		deleteExtraneous := payloadBool(payload, "delete_extraneous", true)
 		jobID, err := e.Store.CreateFileJob(ctx, e.TenantID, e.AgentID, name, source, dest,
-			core.BackupType(backupType), destType, linkDest, sshHost, sshPort, sshUser, sshKeyPath, cron)
+			core.BackupType(backupType), destType, linkDest, deleteExtraneous, sshHost, sshPort, sshUser, sshKeyPath, cron)
 		if err != nil {
 			return nil, err
 		}
@@ -202,7 +203,7 @@ func (e *Executor) getJob(ctx context.Context, payload map[string]any) (map[stri
 		}
 		return map[string]any{
 			"kind": "files", "name": d.Name, "source_path": d.Source, "destination_path": d.Dest,
-			"backup_type": d.BackupType, "link_dest": d.LinkDest, "destination_type": d.DestType,
+			"backup_type": d.BackupType, "link_dest": d.LinkDest, "delete_extraneous": d.DeleteExtraneous, "destination_type": d.DestType,
 			"ssh_host": d.SSHHost, "ssh_port": d.SSHPort, "ssh_user": d.SSHUser, "ssh_key_path": d.SSHKey,
 			"cron": d.Cron, "enabled": d.Enabled,
 		}, nil
@@ -251,8 +252,9 @@ func (e *Executor) updateJob(ctx context.Context, payload map[string]any) (map[s
 		dest, _ := payload["destination_path"].(string)
 		backupType, _ := payload["backup_type"].(string)
 		linkDest, _ := payload["link_dest"].(string)
+		deleteExtraneous := payloadBool(payload, "delete_extraneous", true)
 		if err := e.Store.UpdateFileJobByID(ctx, jobID, name, source, dest, core.BackupType(backupType),
-			destType, linkDest, sshHost, sshPort, sshUser, sshKeyPath, cron, enabled); err != nil {
+			destType, linkDest, deleteExtraneous, sshHost, sshPort, sshUser, sshKeyPath, cron, enabled); err != nil {
 			return nil, err
 		}
 		return map[string]any{"job_id": jobIDStr}, nil

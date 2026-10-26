@@ -21,18 +21,19 @@ type DirEntry struct {
 
 // FileJobRequest describes a file-tree backup job to create or edit.
 type FileJobRequest struct {
-	Name       string
-	Source     string
-	Dest       string
-	BackupType string // full|incremental|differential
-	LinkDest   string
-	DestType   string // local|nas|ssh
-	SSHHost    string
-	SSHPort    int
-	SSHUser    string
-	SSHKey     string
-	Cron       string // 5-field cron expression, or "" for manual-only
-	Enabled    bool
+	Name             string
+	Source           string
+	Dest             string
+	BackupType       string // full|incremental|differential
+	LinkDest         string
+	DeleteExtraneous bool   // rsync --delete: mirror deletions from source to dest
+	DestType         string // local|nas|ssh
+	SSHHost          string
+	SSHPort          int
+	SSHUser          string
+	SSHKey           string
+	Cron             string // 5-field cron expression, or "" for manual-only
+	Enabled          bool
 }
 
 // DBJobRequest describes a database backup job to create or edit. The
