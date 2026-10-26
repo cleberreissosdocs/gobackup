@@ -2,8 +2,10 @@ package webui
 
 import (
 	"context"
+	"encoding/json"
 	"html/template"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -32,6 +34,7 @@ func (s *Site) Mount(mux *http.ServeMux, prefix string) {
 
 	mux.HandleFunc("GET "+prefix+"/", s.Auth.RequireLogin(s.handleHome))
 	mux.HandleFunc("GET "+prefix+"/browse", s.Auth.RequireLogin(s.handleBrowse))
+	mux.HandleFunc("GET "+prefix+"/browse.json", s.Auth.RequireLogin(s.handleBrowseJSON))
 	mux.HandleFunc("POST "+prefix+"/jobs/file", s.Auth.RequireLoginAndCSRF(s.handleCreateFileJob))
 	mux.HandleFunc("POST "+prefix+"/jobs/db", s.Auth.RequireLoginAndCSRF(s.handleCreateDBJob))
 }
@@ -99,6 +102,38 @@ func (s *Site) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		"Entries": entries,
 		"Error":   errMsg,
 	})
+}
+
+// browseJSONResponse is what /browse.json returns for the JS directory
+// picker (used by every origin/destination field in the forms).
+type browseJSONResponse struct {
+	Path    string     `json:"path"`
+	Entries []DirEntry `json:"entries"`
+	Error   string     `json:"error,omitempty"`
+}
+
+func (s *Site) handleBrowseJSON(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	runner, _, err := s.GetRunner(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(browseJSONResponse{Error: err.Error()})
+		return
+	}
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		path = "/"
+	}
+	path = filepath.Clean(path)
+
+	entries, err := runner.ListDir(ctx, path)
+	resp := browseJSONResponse{Path: path, Entries: entries}
+	if err != nil {
+		resp.Error = err.Error()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (s *Site) handleCreateFileJob(w http.ResponseWriter, r *http.Request) {

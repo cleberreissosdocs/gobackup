@@ -13,8 +13,8 @@ import (
 
 // DirEntry is one row returned by a directory listing.
 type DirEntry struct {
-	Name  string
-	IsDir bool
+	Name  string `json:"name"`
+	IsDir bool   `json:"is_dir"`
 }
 
 // FileJobRequest describes a file-tree backup to create and run immediately.
