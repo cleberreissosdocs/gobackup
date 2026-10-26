@@ -87,6 +87,7 @@ legend { padding: 0 0.5rem; color:#9ad1ff; }
 .gb-sched-btn:hover { background:#31313d; }
 .gb-sched-btn.active { background:#2d6cdf; border-color:#2d6cdf; color:#fff; }
 .gb-sched-opt { margin-top:0.9rem; display:flex; flex-wrap:wrap; align-items:center; gap:1rem; }
+.gb-sched-opt[hidden] { display:none; }
 .gb-sched-opt label { display:flex; flex-direction:column; gap:0.3rem; font-size:0.8rem; color:#9aa0ab; text-transform:uppercase; letter-spacing:0.03em; }
 .gb-sched-opt input { margin:0; width:auto; }
 .gb-sched-days { display:flex; gap:0.4rem; }
