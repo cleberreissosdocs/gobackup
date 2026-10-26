@@ -282,9 +282,34 @@ func (s *Server) handleCreateNotificationChannel(w http.ResponseWriter, r *http.
 	writeJSON(w, http.StatusCreated, map[string]string{"channel_id": id.String()})
 }
 
-var notificationsTmpl = template.Must(template.New("notifications").Parse(`
+var notificationsTmpl = template.Must(template.New("notifications").Parse(`<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>GoBackup Central — Canais de notificação</title>
+<style>
+body { font-family: sans-serif; margin: 2rem; background:#111; color:#eee; }
+a { color:#9ad1ff; }
+nav { margin-bottom: 1rem; }
+form.logout { display:inline; margin-left: 1rem; }
+button { background:#2d6cdf; color:#fff; border:none; padding:0.4rem 1rem; cursor:pointer; border-radius:4px; font-size:0.95rem; }
+button:hover { background:#3a7ef0; }
+.notice { background:#1d3a24; border:1px solid #2d6a3a; color:#b6f0c0; padding:0.6rem 1rem; border-radius:4px; max-width:480px; }
+fieldset { border:1px solid #333; border-radius:6px; margin-bottom:1.2rem; max-width:480px; }
+legend { padding:0 0.5rem; color:#9ad1ff; font-weight:bold; }
+form > div, fieldset > div { margin-bottom:0.7rem; }
+label, form > div, fieldset > div { display:block; }
+input[type=text], input[type=number], input[type=password], select {
+  background:#1b1b22; border:1px solid #444; color:#eee; border-radius:4px; padding:0.35rem 0.5rem; width:100%; max-width:300px; margin-top:0.25rem; box-sizing:border-box;
+}
+input:focus, select:focus { outline:none; border-color:#2d6cdf; }
+</style>
+</head>
+<body>
+<nav><a href="/">&larr; GoBackup Central</a>
+<form class="logout" method="post" action="/logout"><button type="submit">Sair</button></form></nav>
 <h1>Canais de notificação</h1>
-{{if .Message}}<p>{{.Message}}</p>{{end}}
+{{if .Message}}<p class="notice">{{.Message}}</p>{{end}}
 <form method="post" action="/notifications">
   <input type="hidden" name="csrf_token" value="{{.CSRF}}">
   <div>Tipo:
@@ -310,7 +335,8 @@ var notificationsTmpl = template.Must(template.New("notifications").Parse(`
   <button type="submit">Adicionar canal</button>
 </form>
 <p><a href="/">&larr; voltar ao dashboard</a></p>
-`))
+</body>
+</html>`))
 
 func (s *Server) handleNotificationsPage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
