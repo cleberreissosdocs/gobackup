@@ -71,6 +71,11 @@ func cmdRun(args []string) {
 	backupType := fs.String("type", "full", "full|incremental|differential")
 	linkDest := fs.String("link-dest", "", "rsync --link-dest baseline (for incremental/differential)")
 	cron := fs.String("cron", "", "schedule cron expression (informational for this MVP step)")
+	destType := fs.String("dest-type", "local", "local|nas|ssh")
+	sshHost := fs.String("ssh-host", "", "ssh destination host (dest-type=ssh)")
+	sshPort := fs.Int("ssh-port", 22, "ssh destination port (dest-type=ssh)")
+	sshUser := fs.String("ssh-user", "", "ssh destination user (dest-type=ssh)")
+	sshKey := fs.String("ssh-key", "", "ssh private key path (dest-type=ssh)")
 	fs.Parse(args)
 
 	if *connString == "" || *name == "" || *source == "" || *dest == "" {
@@ -110,7 +115,11 @@ func cmdRun(args []string) {
 
 	fmt.Printf("[execution %s] running rsync (%s): %s -> %s\n", execID, bt, *source, *dest)
 	start := time.Now()
-	res, runErr := backup.Run(ctx, *source, *dest, bt, *linkDest)
+	destination, err := buildDestination(*destType, *dest, *sshHost, *sshPort, *sshUser, *sshKey)
+	if err != nil {
+		fatal(err.Error())
+	}
+	res, runErr := backup.Run(ctx, *source, destination, bt, *linkDest)
 	elapsed := time.Since(start)
 
 	if runErr != nil {
@@ -236,4 +245,22 @@ func dirOf(path string) string {
 		}
 	}
 	return "."
+}
+
+// buildDestination turns the -dest-type/-ssh-* CLI flags into a
+// backup.Destination value.
+func buildDestination(destType, path, sshHost string, sshPort int, sshUser, sshKey string) (backup.Destination, error) {
+	switch destType {
+	case "", "local":
+		return backup.Local(path), nil
+	case "nas":
+		return backup.NAS(path), nil
+	case "ssh":
+		if sshHost == "" || sshUser == "" {
+			return backup.Destination{}, fmt.Errorf("dest-type=ssh requires -ssh-host and -ssh-user")
+		}
+		return backup.SSH(sshHost, sshPort, sshUser, sshKey, path), nil
+	default:
+		return backup.Destination{}, fmt.Errorf("invalid -dest-type: %s", destType)
+	}
 }

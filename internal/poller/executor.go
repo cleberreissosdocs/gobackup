@@ -95,6 +95,14 @@ func (e *Executor) startJob(ctx context.Context, payload map[string]any) (map[st
 	dest, _ := payload["destination_path"].(string)
 	backupType, _ := payload["backup_type"].(string)
 	linkDest, _ := payload["link_dest"].(string)
+	destType, _ := payload["destination_type"].(string)
+	sshHost, _ := payload["ssh_host"].(string)
+	sshUser, _ := payload["ssh_user"].(string)
+	sshKeyPath, _ := payload["ssh_key_path"].(string)
+	sshPort := 22
+	if p, ok := payload["ssh_port"].(float64); ok && p > 0 { // JSON numbers decode as float64
+		sshPort = int(p)
+	}
 
 	if source == "" || dest == "" {
 		return nil, fmt.Errorf("start_job requires source_path and destination_path")
@@ -107,6 +115,21 @@ func (e *Executor) startJob(ctx context.Context, payload map[string]any) (map[st
 	}
 	bt := core.BackupType(backupType)
 
+	var destination backup.Destination
+	switch destType {
+	case "", "local":
+		destination = backup.Local(dest)
+	case "nas":
+		destination = backup.NAS(dest)
+	case "ssh":
+		if sshHost == "" || sshUser == "" {
+			return nil, fmt.Errorf("destination_type=ssh requires ssh_host and ssh_user")
+		}
+		destination = backup.SSH(sshHost, sshPort, sshUser, sshKeyPath, dest)
+	default:
+		return nil, fmt.Errorf("unsupported destination_type: %s", destType)
+	}
+
 	jobID, err := e.Store.CreateFileJob(ctx, e.TenantID, e.AgentID, name, source, dest, bt, "")
 	if err != nil {
 		return nil, err
@@ -117,7 +140,7 @@ func (e *Executor) startJob(ctx context.Context, payload map[string]any) (map[st
 		return nil, err
 	}
 
-	res, runErr := backup.Run(ctx, source, dest, bt, linkDest)
+	res, runErr := backup.Run(ctx, source, destination, bt, linkDest)
 	if runErr != nil {
 		_ = e.Store.FinishExecution(ctx, execID, core.ExecFailed, 0, 0, runErr.Error())
 		return nil, runErr
