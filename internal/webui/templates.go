@@ -52,7 +52,7 @@ small { color:#999; }
 <header>
   <div><a href="/">GoBackup</a></div>
   <div>
-    {{if .User}}{{.User}} — <form method="post" action="/logout" style="display:inline"><button type="submit">Sair</button></form>{{end}}
+    {{if .User}}{{if .ShowSettings}}<a href="/settings">Configurações</a>{{end}}{{.User}} — <form method="post" action="/logout" style="display:inline"><button type="submit">Sair</button></form>{{end}}
   </div>
 </header>
 <main>

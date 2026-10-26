@@ -19,7 +19,7 @@ type CentralRunner struct {
 
 	// WaitTimeout bounds how long the HTTP handler blocks waiting for the
 	// agent's next poll cycle to deliver+execute the command. Defaults to
-	// 25s if zero (comfortably longer than the agent's 15s poll interval).
+	// 5s if zero (comfortably longer than the agent's 1s poll interval).
 	WaitTimeout time.Duration
 }
 
@@ -27,7 +27,7 @@ func (r *CentralRunner) timeout() time.Duration {
 	if r.WaitTimeout > 0 {
 		return r.WaitTimeout
 	}
-	return 25 * time.Second
+	return 5 * time.Second
 }
 
 func (r *CentralRunner) enqueueAndWait(ctx context.Context, cmdType string, payload map[string]any) (JobOutcome, error) {

@@ -271,7 +271,7 @@ func (s *Store) ListAgentsNeedingOfflineAlert(ctx context.Context) ([]AgentView,
 		SELECT id, name, hostname, status, last_seen_at
 		FROM agents
 		WHERE notified_offline_at IS NULL
-		  AND (last_seen_at IS NULL OR last_seen_at < now() - interval '45 seconds')
+		  AND (last_seen_at IS NULL OR last_seen_at < now() - interval '5 seconds')
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("list agents needing offline alert: %w", err)
@@ -299,9 +299,10 @@ type AgentView struct {
 }
 
 // staleAfter is how long since the last heartbeat before the dashboard
-// should show an agent as offline, even if its DB row still says online
-// (polling interval is 15s, so >45s missed = 3 missed beats).
-const staleAfter = 45 * time.Second
+// should show an agent as offline, even if its DB row still says online.
+// With a 1s heartbeat interval, 5s of silence (5 missed beats) is a solid
+// signal without being trigger-happy on a single dropped packet.
+const staleAfter = 5 * time.Second
 
 func (s *Store) ListAgents(ctx context.Context) ([]AgentView, error) {
 	rows, err := s.Pool.Query(ctx, `

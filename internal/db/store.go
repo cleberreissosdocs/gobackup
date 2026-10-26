@@ -180,6 +180,31 @@ func (s *Store) FinishExecution(ctx context.Context, execID uuid.UUID, status co
 	return nil
 }
 
+// SetSetting upserts a single key/value pair in agent_settings — used to
+// store the Central URL/CA/token so the agent can be pointed at a Central
+// from the web UI instead of only via CLI flags.
+func (s *Store) SetSetting(ctx context.Context, key, value string) error {
+	_, err := s.Pool.Exec(ctx, `
+		INSERT INTO agent_settings (key, value, updated_at)
+		VALUES ($1, $2, now())
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+	`, key, value)
+	if err != nil {
+		return fmt.Errorf("set setting %s: %w", key, err)
+	}
+	return nil
+}
+
+// GetSetting returns a setting's value and whether it was found.
+func (s *Store) GetSetting(ctx context.Context, key string) (string, bool, error) {
+	var value string
+	err := s.Pool.QueryRow(ctx, `SELECT value FROM agent_settings WHERE key = $1`, key).Scan(&value)
+	if err != nil {
+		return "", false, nil //nolint:nilerr // "not found" is a normal, expected case here
+	}
+	return value, true, nil
+}
+
 // RecentExecution is a read model combining a job_executions row with its
 // parent job's name, for the agent's "recent activity" page.
 type RecentExecution struct {

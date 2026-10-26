@@ -18,6 +18,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/cleber/gobackup/internal/agentweb"
 	"github.com/cleber/gobackup/internal/backup"
 	"github.com/cleber/gobackup/internal/core"
 	"github.com/cleber/gobackup/internal/db"
@@ -163,7 +164,11 @@ func cmdRegister(args []string) {
 	}
 
 	hostname, _ := os.Hostname()
-	res, err := poller.Register(*central, *name, hostname, *centralCA)
+	caPEM, err := poller.LoadCACertFile(*centralCA)
+	if err != nil {
+		fatal(err.Error())
+	}
+	res, err := poller.Register(*central, *name, hostname, caPEM)
 	if err != nil {
 		fatal(err.Error())
 	}
@@ -183,7 +188,7 @@ func cmdHeartbeat(args []string) {
 	central := fs.String("central", "", "Central base URL, e.g. https://host:8443")
 	connString := fs.String("db", "", "agent's local Postgres connection string")
 	tokenFile := fs.String("token-file", "/etc/gobackup/agent-token", "file containing the agent token")
-	interval := fs.Duration("interval", 15*time.Second, "polling interval")
+	interval := fs.Duration("interval", 1*time.Second, "polling interval")
 	once := fs.Bool("once", false, "send a single heartbeat and exit (for testing)")
 	centralCA := fs.String("central-ca", "", "path to the Central's TLS CA cert (pinned trust)")
 	fs.Parse(args)
@@ -196,7 +201,11 @@ func cmdHeartbeat(args []string) {
 	if err != nil {
 		fatal(fmt.Sprintf("read token file: %v", err))
 	}
-	client, err := poller.NewClient(*central, string(tokenBytes), *centralCA)
+	caPEM, err := poller.LoadCACertFile(*centralCA)
+	if err != nil {
+		fatal(err.Error())
+	}
+	client, err := poller.NewClient(*central, string(tokenBytes), caPEM)
 	if err != nil {
 		fatal(err.Error())
 	}
@@ -389,6 +398,7 @@ func cmdServe(args []string) {
 	tlsCert := fs.String("tls-cert", "", "TLS certificate path (auto-generated self-signed if omitted)")
 	tlsKey := fs.String("tls-key", "", "TLS key path (auto-generated self-signed if omitted)")
 	noTLS := fs.Bool("no-tls", false, "serve plain HTTP instead of HTTPS (NOT recommended)")
+	heartbeatInterval := fs.Duration("heartbeat-interval", 1*time.Second, "interval between heartbeats to the configured Central")
 	fs.Parse(args)
 
 	if *connString == "" {
@@ -408,6 +418,12 @@ func cmdServe(args []string) {
 		fatal(err.Error())
 	}
 
+	// Heartbeat runs inside this same process now: its settings (Central
+	// URL/CA/token) live in the local DB and can be changed any time from
+	// the /settings page, taking effect on the very next tick.
+	heart := &poller.Runner{Store: store, TenantID: tenantID, AgentID: agentID}
+	go heart.Run(ctx, *heartbeatInterval)
+
 	runner := &webui.LocalRunner{Store: store, TenantID: tenantID, AgentID: agentID}
 	auth := webauth.NewManager(store)
 	site := &webui.Site{
@@ -419,6 +435,7 @@ func cmdServe(args []string) {
 
 	mux := http.NewServeMux()
 	site.Mount(mux, "")
+	(&agentweb.SettingsHandler{Auth: auth, Heart: heart}).Mount(mux)
 
 	if *noTLS {
 		log.Printf("gobackup-agent web UI listening on %s (PLAIN HTTP — not recommended)", *addr)

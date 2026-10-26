@@ -330,7 +330,7 @@ var dashboardTmpl = template.Must(template.New("dashboard").Parse(`<!doctype htm
 <html>
 <head>
 <meta charset="utf-8">
-<meta http-equiv="refresh" content="10">
+<meta http-equiv="refresh" content="3">
 <title>GoBackup Central</title>
 <style>
 body { font-family: sans-serif; margin: 2rem; background:#111; color:#eee; }

@@ -109,7 +109,7 @@ func cmdServe(args []string) {
 // runOfflineChecker periodically scans for agents that have gone silent
 // and fires the "agent_offline" notification once per outage.
 func runOfflineChecker(ctx context.Context, store *db.Store, srv *api.Server) {
-	ticker := time.NewTicker(20 * time.Second)
+	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 	for range ticker.C {
 		agents, err := store.ListAgentsNeedingOfflineAlert(ctx)

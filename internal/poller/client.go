@@ -20,22 +20,18 @@ type Client struct {
 	HTTP       *http.Client
 }
 
-// NewClient builds an HTTPS-aware client. If caCertPath is non-empty, the
+// NewClient builds an HTTPS-aware client. If caCertPEM is non-empty, the
 // Central's certificate must chain to that CA (pinned trust — no public CA
-// needed for an internal self-signed deployment); an empty caCertPath falls
-// back to the system trust store (use for a CentralURL with a real CA-signed
+// needed for an internal self-signed deployment); empty caCertPEM falls
+// back to the system trust store (use when CentralURL has a real CA-signed
 // certificate, e.g. Let's Encrypt).
-func NewClient(centralURL, token, caCertPath string) (*Client, error) {
+func NewClient(centralURL, token string, caCertPEM []byte) (*Client, error) {
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 
-	if caCertPath != "" {
-		caCert, err := os.ReadFile(caCertPath)
-		if err != nil {
-			return nil, fmt.Errorf("read central CA cert: %w", err)
-		}
+	if len(caCertPEM) > 0 {
 		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(caCert) {
-			return nil, fmt.Errorf("invalid CA cert at %s", caCertPath)
+		if !pool.AppendCertsFromPEM(caCertPEM) {
+			return nil, fmt.Errorf("invalid CA certificate PEM")
 		}
 		httpClient.Transport = &http.Transport{
 			TLSClientConfig: &tls.Config{RootCAs: pool},
@@ -43,6 +39,16 @@ func NewClient(centralURL, token, caCertPath string) (*Client, error) {
 	}
 
 	return &Client{CentralURL: centralURL, Token: token, HTTP: httpClient}, nil
+}
+
+// LoadCACertFile is a small helper for CLI flags that still take a file
+// path (-central-ca) rather than the raw PEM bytes used when configuration
+// comes from the database (the web UI "Settings" screen).
+func LoadCACertFile(path string) ([]byte, error) {
+	if path == "" {
+		return nil, nil
+	}
+	return os.ReadFile(path)
 }
 
 type RegisterResult struct {
@@ -54,8 +60,8 @@ type RegisterResult struct {
 // It does not require a token itself (bootstrap step), but does reuse the
 // same pinned-CA HTTP client so the very first contact with the Central is
 // already verified, not just the later polls.
-func Register(centralURL, name, hostname, caCertPath string) (RegisterResult, error) {
-	client, err := NewClient(centralURL, "", caCertPath)
+func Register(centralURL, name, hostname string, caCertPEM []byte) (RegisterResult, error) {
+	client, err := NewClient(centralURL, "", caCertPEM)
 	if err != nil {
 		return RegisterResult{}, err
 	}

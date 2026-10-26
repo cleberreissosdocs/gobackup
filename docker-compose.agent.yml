@@ -1,24 +1,25 @@
-# GoBackup Agent — deploy stack (agent heartbeat + local web UI + its own
-# Postgres), to run on each protected server.
+# GoBackup Agent — deploy stack (one process: web UI + embedded heartbeat,
+# plus its own Postgres), to run on each protected server.
+#
+# As of this version the heartbeat runs INSIDE the "serve" process and its
+# Central URL/CA/token are configured from the web UI's "Configurações"
+# page (no -central flag needed at startup) — see the README.
 #
 # Usage:
-#   1. cp .env.agent.example .env.agent   (edit values)
-#   2. Put the Central's CA cert at ./central-ca.pem (copied from the
-#      Central's docker-compose.central.yml, see its header comment)
-#   3. docker compose -f docker-compose.agent.yml --env-file .env.agent up -d --build postgres
-#   4. docker compose -f docker-compose.agent.yml --env-file .env.agent run --rm agent-web \
-#        migrate -db "postgres://gobackup:${POSTGRES_PASSWORD}@postgres:5432/gobackup?sslmode=disable"
-#   5. docker compose -f docker-compose.agent.yml --env-file .env.agent run --rm agent-web \
-#        register -central https://<central-host>:8443 -name <this-server-name> \
-#        -token-file /data/agent-token -central-ca /ca/central-ca.pem
-#   6. docker compose -f docker-compose.agent.yml --env-file .env.agent run --rm agent-web \
-#        create-user -db "postgres://gobackup:${POSTGRES_PASSWORD}@postgres:5432/gobackup?sslmode=disable" \
+#   1. cp .env.agent.example .env.agent   (edit POSTGRES_PASSWORD at least)
+#   2. docker compose -f docker-compose.agent.yml --env-file .env.agent up -d --build postgres
+#   3. docker compose -f docker-compose.agent.yml --env-file .env.agent run --rm agent \
+#        migrate -db "postgres://gobackup:***@postgres:5432/gobackup?sslmode=disable"
+#   4. docker compose -f docker-compose.agent.yml --env-file .env.agent run --rm agent \
+#        create-user -db "postgres://gobackup:***@postgres:5432/gobackup?sslmode=disable" \
 #        -email admin -password <escolha>
-#   7. docker compose -f docker-compose.agent.yml --env-file .env.agent up -d
+#   5. docker compose -f docker-compose.agent.yml --env-file .env.agent up -d
+#   6. Open https://<este-servidor>:8081/, faça login, e em "Configurações"
+#      aponte para a URL do Central e cole o certificado CA dele.
 #
-# Mount whatever host directories you want backed up under /backups (see
-# the agent-heartbeat/agent-web volumes below) — paths you type into the web
-# UI or CLI (-source/-dest) must be the IN-CONTAINER path, e.g. /backups/www.
+# Mount whatever host directories you want backed up under /backups — paths
+# you type into the web UI or CLI (-source/-dest) must be the IN-CONTAINER
+# path, e.g. /backups/www.
 
 services:
   postgres:
@@ -36,30 +37,7 @@ services:
       timeout: 5s
       retries: 10
 
-  agent-heartbeat:
-    build:
-      context: .
-      dockerfile: Dockerfile.agent
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.agent}
-    command:
-      - heartbeat
-      - -central=${CENTRAL_URL:?set CENTRAL_URL in .env.agent, e.g. https://central-host:8443}
-      - -db=postgres://gobackup:${POSTGRES_PASSWORD}@postgres:5432/gobackup?sslmode=disable
-      - -token-file=/data/agent-token
-      - -central-ca=/ca/central-ca.pem
-      - -interval=15s
-    volumes:
-      - agent_data:/data
-      - ./central-ca.pem:/ca/central-ca.pem:ro
-      - ${BACKUP_SOURCE_DIR:-./backups}:/backups
-      - ${SSH_KEY_DIR:-./ssh-keys}:/ssh-keys:ro
-
-  agent-web:
+  agent:
     build:
       context: .
       dockerfile: Dockerfile.agent
@@ -73,11 +51,11 @@ services:
       - serve
       - -db=postgres://gobackup:${POSTGRES_PASSWORD}@postgres:5432/gobackup?sslmode=disable
       - -addr=:8081
+      - -heartbeat-interval=${HEARTBEAT_INTERVAL:-1s}
     ports:
       - "${AGENT_WEB_PORT:-8081}:8081"
     volumes:
       - agent_data:/data
-      - ./central-ca.pem:/ca/central-ca.pem:ro
       - ${BACKUP_SOURCE_DIR:-./backups}:/backups
       - ${SSH_KEY_DIR:-./ssh-keys}:/ssh-keys:ro
 

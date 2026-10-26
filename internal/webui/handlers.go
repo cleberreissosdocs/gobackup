@@ -40,7 +40,7 @@ func (s *Site) Mount(mux *http.ServeMux, prefix string) {
 }
 
 func (s *Site) handleLoginForm(w http.ResponseWriter, r *http.Request) {
-	renderPage(w, "Login", "", loginTmpl, nil)
+	s.renderPage(w, r, "Login", loginTmpl, nil)
 }
 
 func (s *Site) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
@@ -48,7 +48,7 @@ func (s *Site) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	email := r.FormValue("email")
 	password := r.FormValue("password")
 	if err := s.Auth.Login(r.Context(), w, r, email, password); err != nil {
-		renderPage(w, "Login", "", loginTmpl, map[string]any{"Error": err.Error()})
+		s.renderPage(w, r, "Login", loginTmpl, map[string]any{"Error": err.Error()})
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -69,7 +69,7 @@ func (s *Site) handleHome(w http.ResponseWriter, r *http.Request) {
 
 	activity, _ := runner.RecentActivity(ctx, 15)
 
-	renderPage(w, "GoBackup — "+name, s.Auth.CurrentUser(r), homeTmpl, map[string]any{
+	s.renderPage(w, r, "GoBackup — "+name, homeTmpl, map[string]any{
 		"Name":     name,
 		"Base":     s.base(r),
 		"Activity": activity,
@@ -95,7 +95,7 @@ func (s *Site) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		errMsg = err.Error()
 	}
 
-	renderPage(w, "Explorar diretório — "+name, s.Auth.CurrentUser(r), browseTmpl, map[string]any{
+	s.renderPage(w, r, "Explorar diretório — "+name, browseTmpl, map[string]any{
 		"Name":    name,
 		"Base":    s.base(r),
 		"Path":    path,
@@ -163,7 +163,7 @@ func (s *Site) handleCreateFileJob(w http.ResponseWriter, r *http.Request) {
 		outcome = JobOutcome{Status: "failed", Message: err.Error()}
 	}
 
-	renderPage(w, "Resultado — "+name, s.Auth.CurrentUser(r), outcomeTmpl, map[string]any{
+	s.renderPage(w, r, "Resultado — "+name, outcomeTmpl, map[string]any{
 		"Name": name, "Base": s.base(r), "Outcome": outcome, "JobName": req.Name,
 	})
 }
@@ -203,7 +203,7 @@ func (s *Site) handleCreateDBJob(w http.ResponseWriter, r *http.Request) {
 		outcome = JobOutcome{Status: "failed", Message: err.Error()}
 	}
 
-	renderPage(w, "Resultado — "+name, s.Auth.CurrentUser(r), outcomeTmpl, map[string]any{
+	s.renderPage(w, r, "Resultado — "+name, outcomeTmpl, map[string]any{
 		"Name": name, "Base": s.base(r), "Outcome": outcome, "JobName": req.Name,
 	})
 }
@@ -215,17 +215,29 @@ func (s *Site) base(r *http.Request) string {
 	return ""
 }
 
-func renderPage(w http.ResponseWriter, title, user string, body *template.Template, data map[string]any) {
+// renderPage wraps body in the shared layout, injecting the current user
+// and whether to show the "Configurações" nav link (agent-only — the
+// Central doesn't have a single set of connection settings to edit).
+func (s *Site) renderPage(w http.ResponseWriter, r *http.Request, title string, body *template.Template, data map[string]any) {
+	RenderPage(w, s.Auth, !s.IsCentral, r, title, body, data)
+}
+
+// RenderPage is the exported version of the shared-layout renderer, usable
+// by agent-only screens (e.g. internal/agentweb's Settings page) that live
+// outside the webui.Site abstraction but want the same chrome.
+func RenderPage(w http.ResponseWriter, auth *webauth.Manager, showSettingsIfLoggedIn bool, r *http.Request, title string, body *template.Template, data map[string]any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if data == nil {
 		data = map[string]any{}
 	}
+	user := auth.CurrentUser(r)
 	data["Title"] = title
 	data["User"] = user
 	layoutTmpl.Execute(w, map[string]any{
-		"Title": title,
-		"User":  user,
-		"Body":  renderToString(body, data),
+		"Title":        title,
+		"User":         user,
+		"ShowSettings": showSettingsIfLoggedIn && user != "",
+		"Body":         renderToString(body, data),
 	})
 }
 
