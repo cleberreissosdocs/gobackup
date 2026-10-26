@@ -396,12 +396,13 @@ button.secondary:hover { background:#a83a3a; }
   <td class="{{.Status}}">{{.Status}}</td>
   <td>{{.LastSeen}}</td>
   <td>{{if .HasFailure}}<span style="color:#f44336; font-size:1.4rem;" title="alguma tarefa deste agente falhou na última execução">&#9679;</span>{{else}}<span style="color:#4caf50; font-size:1.4rem;" title="nenhuma falha nas últimas execuções">&#9679;</span>{{end}}</td>
-  <td>
-    <a href="/agents/{{.ID}}/">administrar</a>
-    <form method="post" action="/agents/{{.ID}}/delete" style="display:inline-block; margin-left:2.5rem; padding-left:1rem; border-left:1px solid #444;" onsubmit="return confirm('Apagar o agente \'{{.Name}}\' do Central? O agente continua rodando no servidor dele, mas some deste painel e precisa ser registrado de novo (tela Configurações do agente) para reaparecer.');">
+  <td style="white-space:nowrap;">
+    <a href="/agents/{{.ID}}/">administrar</a><span style="display:inline-block; width:2rem;"></span><span style="border-left:1px solid #444; padding-left:1rem;">
+    <form method="post" action="/agents/{{.ID}}/delete" style="display:inline" onsubmit="return confirm('Apagar o agente \'{{.Name}}\' do Central? O agente continua rodando no servidor dele, mas some deste painel e precisa ser registrado de novo (tela Configurações do agente) para reaparecer.');">
       <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
       <button type="submit" class="secondary">Apagar</button>
     </form>
+    </span>
   </td>
 </tr>
 {{else}}
