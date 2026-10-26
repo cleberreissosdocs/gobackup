@@ -52,14 +52,26 @@ func Register(centralURL, name, hostname string) (RegisterResult, error) {
 	return res, nil
 }
 
-type PollResponse struct {
-	Commands []any `json:"commands"`
+type QueuedCommand struct {
+	ID      string         `json:"id"`
+	Type    string         `json:"type"`
+	Payload map[string]any `json:"payload"`
 }
 
-// Poll sends one heartbeat with the agent's current status and returns
-// whatever commands the Central queued (empty for this MVP step).
-func (c *Client) Poll(status string) (PollResponse, error) {
-	body, _ := json.Marshal(map[string]string{"status": status})
+type CommandResult struct {
+	CommandID string         `json:"command_id"`
+	Status    string         `json:"status"` // "acked" or "failed"
+	Result    map[string]any `json:"result,omitempty"`
+}
+
+type PollResponse struct {
+	Commands []QueuedCommand `json:"commands"`
+}
+
+// Poll sends one heartbeat with the agent's current status and any results
+// from previously received commands, and returns newly queued commands.
+func (c *Client) Poll(status string, results []CommandResult) (PollResponse, error) {
+	body, _ := json.Marshal(map[string]any{"status": status, "command_results": results})
 	req, err := http.NewRequest(http.MethodPost, c.CentralURL+"/api/v1/agents/poll", bytes.NewReader(body))
 	if err != nil {
 		return PollResponse{}, err

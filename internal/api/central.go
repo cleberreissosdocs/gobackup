@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/cleber/gobackup/internal/db"
 )
 
@@ -28,6 +30,7 @@ func NewServer(store *db.Store) *Server {
 func (s *Server) routes() {
 	s.Mux.HandleFunc("POST /api/v1/agents/register", s.handleRegister)
 	s.Mux.HandleFunc("POST /api/v1/agents/poll", s.handlePoll)
+	s.Mux.HandleFunc("POST /api/v1/agents/{id}/commands", s.handleEnqueueCommand)
 	s.Mux.HandleFunc("GET /", s.handleDashboard)
 	s.Mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -74,12 +77,19 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, registerResponse{AgentID: agentID.String(), Token: token})
 }
 
+type commandResultDTO struct {
+	CommandID string         `json:"command_id"`
+	Status    string         `json:"status"`
+	Result    map[string]any `json:"result"`
+}
+
 type pollRequest struct {
-	Status string `json:"status"`
+	Status         string              `json:"status"`
+	CommandResults []commandResultDTO `json:"command_results"`
 }
 
 type pollResponse struct {
-	Commands []any `json:"commands"` // empty for this MVP step; queue comes later
+	Commands []db.QueuedCommand `json:"commands"`
 }
 
 func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +115,60 @@ func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, pollResponse{Commands: []any{}})
+	for _, cr := range req.CommandResults {
+		cmdID, err := uuid.Parse(cr.CommandID)
+		if err != nil {
+			continue
+		}
+		if err := s.Store.RecordCommandResult(ctx, cmdID, cr.Status, cr.Result); err != nil {
+			log.Println("poll: record command result:", err)
+		}
+	}
+
+	commands, err := s.Store.FetchAndDeliverPendingCommands(ctx, agentID)
+	if err != nil {
+		log.Println("poll: fetch commands:", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, pollResponse{Commands: commands})
+}
+
+type enqueueRequest struct {
+	Type    string         `json:"type"`
+	Payload map[string]any `json:"payload"`
+}
+
+// handleEnqueueCommand lets an operator queue a remote command for an agent.
+// This is an internal/admin endpoint used until the web UI exists; it takes
+// the agent ID from the URL path: POST /api/v1/agents/{id}/commands
+func (s *Server) handleEnqueueCommand(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	agentID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httpError(w, http.StatusBadRequest, "invalid agent id")
+		return
+	}
+
+	var req enqueueRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	if strings.TrimSpace(req.Type) == "" {
+		httpError(w, http.StatusBadRequest, "type is required")
+		return
+	}
+
+	cmdID, err := s.Store.EnqueueCommand(ctx, agentID, req.Type, req.Payload)
+	if err != nil {
+		log.Println("enqueue command:", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]string{"command_id": cmdID.String()})
 }
 
 var dashboardTmpl = template.Must(template.New("dashboard").Parse(`<!doctype html>

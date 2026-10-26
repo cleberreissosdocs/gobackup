@@ -160,13 +160,14 @@ func cmdRegister(args []string) {
 func cmdHeartbeat(args []string) {
 	fs := flag.NewFlagSet("heartbeat", flag.ExitOnError)
 	central := fs.String("central", "", "Central base URL, e.g. http://host:8080")
+	connString := fs.String("db", "", "agent's local Postgres connection string")
 	tokenFile := fs.String("token-file", "/etc/gobackup/agent-token", "file containing the agent token")
 	interval := fs.Duration("interval", 15*time.Second, "polling interval")
 	once := fs.Bool("once", false, "send a single heartbeat and exit (for testing)")
 	fs.Parse(args)
 
-	if *central == "" {
-		fatal("missing -central")
+	if *central == "" || *connString == "" {
+		fatal("missing required flags: -central -db")
 	}
 
 	tokenBytes, err := os.ReadFile(*tokenFile)
@@ -175,16 +176,50 @@ func cmdHeartbeat(args []string) {
 	}
 	client := poller.NewClient(*central, string(tokenBytes))
 
+	ctx := context.Background()
+	store, err := db.Connect(ctx, *connString)
+	if err != nil {
+		fatal(err.Error())
+	}
+	defer store.Close()
+
+	hostname, _ := os.Hostname()
+	tenantID, agentID, err := store.EnsureDefaultTenantAndAgent(ctx, hostname)
+	if err != nil {
+		fatal(err.Error())
+	}
+	exec := &poller.Executor{Store: store, TenantID: tenantID, AgentID: agentID}
+
+	var pendingResults []poller.CommandResult
+
 	beat := func() {
-		if _, err := client.Poll("idle"); err != nil {
+		resp, err := client.Poll("idle", pendingResults)
+		if err != nil {
 			log.Println("heartbeat error:", err)
 			return
 		}
-		log.Println("heartbeat OK")
+		pendingResults = nil
+		log.Printf("heartbeat OK, %d command(s) received", len(resp.Commands))
+
+		for _, cmd := range resp.Commands {
+			log.Printf("executing command %s (%s)", cmd.ID, cmd.Type)
+			result := exec.Execute(ctx, cmd)
+			if result.Status == "failed" {
+				log.Printf("command %s failed: %v", cmd.ID, result.Result["error"])
+			} else {
+				log.Printf("command %s OK", cmd.ID)
+			}
+			pendingResults = append(pendingResults, result)
+		}
 	}
 
 	beat()
 	if *once {
+		// give pending results (from commands executed above) one more
+		// chance to reach the Central before exiting.
+		if len(pendingResults) > 0 {
+			beat()
+		}
 		return
 	}
 	ticker := time.NewTicker(*interval)

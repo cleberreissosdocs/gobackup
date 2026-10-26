@@ -75,6 +75,79 @@ func (s *Store) TouchAgentHeartbeat(ctx context.Context, agentID uuid.UUID, stat
 	return nil
 }
 
+// QueuedCommand is a command delivered to the agent in a poll response.
+type QueuedCommand struct {
+	ID      uuid.UUID      `json:"id"`
+	Type    string         `json:"type"`
+	Payload map[string]any `json:"payload"`
+}
+
+// EnqueueCommand adds a command for the given agent to pick up on its next poll.
+func (s *Store) EnqueueCommand(ctx context.Context, agentID uuid.UUID, cmdType string, payload map[string]any) (uuid.UUID, error) {
+	var id uuid.UUID
+	err := s.Pool.QueryRow(ctx, `
+		INSERT INTO agent_commands (agent_id, type, payload, status)
+		VALUES ($1, $2, $3, 'pending')
+		RETURNING id
+	`, agentID, cmdType, payload).Scan(&id)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("enqueue command: %w", err)
+	}
+	return id, nil
+}
+
+// FetchAndDeliverPendingCommands returns all pending commands for an agent
+// and marks them as delivered in the same call.
+func (s *Store) FetchAndDeliverPendingCommands(ctx context.Context, agentID uuid.UUID) ([]QueuedCommand, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT id, type, payload FROM agent_commands
+		WHERE agent_id = $1 AND status = 'pending'
+		ORDER BY created_at
+	`, agentID)
+	if err != nil {
+		return nil, fmt.Errorf("fetch pending commands: %w", err)
+	}
+	defer rows.Close()
+
+	var out []QueuedCommand
+	var ids []uuid.UUID
+	for rows.Next() {
+		var c QueuedCommand
+		if err := rows.Scan(&c.ID, &c.Type, &c.Payload); err != nil {
+			return nil, fmt.Errorf("scan command: %w", err)
+		}
+		out = append(out, c)
+		ids = append(ids, c.ID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(ids) > 0 {
+		_, err := s.Pool.Exec(ctx, `
+			UPDATE agent_commands SET status = 'delivered', delivered_at = now()
+			WHERE id = ANY($1)
+		`, ids)
+		if err != nil {
+			return nil, fmt.Errorf("mark delivered: %w", err)
+		}
+	}
+	return out, nil
+}
+
+// RecordCommandResult stores the outcome an agent reported for a command it
+// previously received.
+func (s *Store) RecordCommandResult(ctx context.Context, commandID uuid.UUID, status string, result map[string]any) error {
+	_, err := s.Pool.Exec(ctx, `
+		UPDATE agent_commands SET status = $1, acked_at = now(), result = $2
+		WHERE id = $3
+	`, status, result, commandID)
+	if err != nil {
+		return fmt.Errorf("record command result: %w", err)
+	}
+	return nil
+}
+
 // AgentView is a read model for the Central dashboard.
 type AgentView struct {
 	ID         uuid.UUID
