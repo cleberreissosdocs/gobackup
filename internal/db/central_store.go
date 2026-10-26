@@ -339,9 +339,11 @@ func generateToken() (string, error) {
 
 // RemoteJobInfo is one job entry as reported by an agent's heartbeat.
 type RemoteJobInfo struct {
-	JobID string
-	Name  string
-	Kind  string
+	JobID   string
+	Name    string
+	Kind    string
+	Cron    string
+	Enabled bool
 }
 
 // ReplaceAgentJobsSnapshot overwrites the cached job list for one agent.
@@ -360,8 +362,8 @@ func (s *Store) ReplaceAgentJobsSnapshot(ctx context.Context, agentID uuid.UUID,
 	}
 	for _, j := range jobs {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO agent_jobs_cache (agent_id, job_id, name, kind) VALUES ($1, $2, $3, $4)
-		`, agentID, j.JobID, j.Name, j.Kind); err != nil {
+			INSERT INTO agent_jobs_cache (agent_id, job_id, name, kind, cron, enabled) VALUES ($1, $2, $3, $4, $5, $6)
+		`, agentID, j.JobID, j.Name, j.Kind, j.Cron, j.Enabled); err != nil {
 			return fmt.Errorf("replace agent jobs snapshot: insert: %w", err)
 		}
 	}
@@ -378,13 +380,15 @@ type AllAgentsJobRow struct {
 	JobID     string
 	Name      string
 	Kind      string
+	Cron      string
+	Enabled   bool
 }
 
 // ListAllAgentJobs returns the cached job list across every agent, for the
 // dashboard's "Tarefas de todos os servidores" table.
 func (s *Store) ListAllAgentJobs(ctx context.Context) ([]AllAgentsJobRow, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT c.agent_id, a.name, c.job_id, c.name, c.kind
+		SELECT c.agent_id, a.name, c.job_id, c.name, c.kind, c.cron, c.enabled
 		FROM agent_jobs_cache c
 		JOIN agents a ON a.id = c.agent_id
 		ORDER BY a.name, c.name
@@ -396,7 +400,7 @@ func (s *Store) ListAllAgentJobs(ctx context.Context) ([]AllAgentsJobRow, error)
 	var out []AllAgentsJobRow
 	for rows.Next() {
 		var row AllAgentsJobRow
-		if err := rows.Scan(&row.AgentID, &row.AgentName, &row.JobID, &row.Name, &row.Kind); err != nil {
+		if err := rows.Scan(&row.AgentID, &row.AgentName, &row.JobID, &row.Name, &row.Kind, &row.Cron, &row.Enabled); err != nil {
 			return nil, err
 		}
 		out = append(out, row)

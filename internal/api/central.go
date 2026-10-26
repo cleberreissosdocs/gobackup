@@ -162,7 +162,7 @@ func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
 
 	jobSnapshot := make([]db.RemoteJobInfo, 0, len(req.Jobs))
 	for _, j := range req.Jobs {
-		jobSnapshot = append(jobSnapshot, db.RemoteJobInfo{JobID: j.ID, Name: j.Name, Kind: j.Kind})
+		jobSnapshot = append(jobSnapshot, db.RemoteJobInfo{JobID: j.ID, Name: j.Name, Kind: j.Kind, Cron: j.Cron, Enabled: j.Enabled})
 	}
 	if err := s.Store.ReplaceAgentJobsSnapshot(ctx, agentID, jobSnapshot); err != nil {
 		log.Println("poll: replace jobs snapshot:", err) // non-fatal: dashboard just shows a stale list
@@ -399,14 +399,16 @@ form.logout { display:inline; margin-left: 1rem; }
 
 <h2>Tarefas de todos os servidores</h2>
 <table>
-<tr><th>Servidor</th><th>Tarefa</th><th>Tipo</th><th>Ação</th></tr>
+<tr><th>Servidor</th><th>Tarefa</th><th>Tipo</th><th>Agendamento</th><th>Ação</th></tr>
 {{range .Jobs}}
 <tr>
   <td>{{.AgentName}}</td>
-  <td>{{.Name}}</td>
+  <td>{{.Name}}{{if not .Enabled}} <small>(desabilitada)</small>{{end}}</td>
   <td>{{if eq .Kind "files"}}Arquivos{{else}}Banco de dados{{end}}</td>
+  <td>{{if .Cron}}{{.Cron}}{{else}}<small>manual</small>{{end}}</td>
   <td>
-    <form method="post" action="/agents/{{.AgentID}}/jobs/{{.JobID}}/run" style="display:inline-flex; gap:0.5rem; align-items:center">
+    <a href="/agents/{{.AgentID}}/jobs/{{.JobID}}/edit">Editar</a>
+    <form method="post" action="/agents/{{.AgentID}}/jobs/{{.JobID}}/run" style="display:inline-flex; gap:0.5rem; align-items:center; margin-left:0.8rem">
       <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
       {{if eq .Kind "database"}}<input type="password" name="password" placeholder="senha (se necessário)">{{end}}
       <button type="submit">Executar</button>
@@ -414,7 +416,7 @@ form.logout { display:inline; margin-left: 1rem; }
   </td>
 </tr>
 {{else}}
-<tr><td colspan="4">nenhuma tarefa criada ainda em nenhum servidor</td></tr>
+<tr><td colspan="5">nenhuma tarefa criada ainda em nenhum servidor</td></tr>
 {{end}}
 </table>
 </body>
@@ -434,6 +436,8 @@ type dashboardJobView struct {
 	JobID     string
 	Name      string
 	Kind      string
+	Cron      string
+	Enabled   bool
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -468,6 +472,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	for _, j := range jobRows {
 		jobViews = append(jobViews, dashboardJobView{
 			AgentID: j.AgentID.String(), AgentName: j.AgentName, JobID: j.JobID, Name: j.Name, Kind: j.Kind,
+			Cron: j.Cron, Enabled: j.Enabled,
 		})
 	}
 
