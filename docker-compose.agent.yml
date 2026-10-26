@@ -42,6 +42,12 @@ services:
       context: .
       dockerfile: Dockerfile.agent
     restart: unless-stopped
+    # Fixed hostname: EnsureDefaultTenantAndAgent keys the agent's identity
+    # (and thus every job definition) by hostname — without this, every
+    # container recreation would get Docker's random hostname and silently
+    # orphan all previously created jobs under a "new" agent identity.
+    # Change this per server if you run more than one agent container.
+    hostname: ${AGENT_HOSTNAME:-gobackup-agent}
     depends_on:
       postgres:
         condition: service_healthy
