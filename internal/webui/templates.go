@@ -399,6 +399,19 @@ function gbShowJobForm(kind) {
   document.getElementById('gb-newjob-file').style.display = kind === 'file' ? 'block' : 'none';
   document.getElementById('gb-newjob-db').style.display = kind === 'db' ? 'block' : 'none';
 }
+
+// --- Database job form: only Host/Porta/Usuário/Senha/Banco específico/
+// "Todos os bancos" make sense for a real DB server (Postgres/MySQL/
+// MariaDB); SQLite is just a file, so it only needs "Caminho do arquivo
+// SQLite". Toggle which fields are visible based on the chosen engine.
+function gbToggleDBFields(select) {
+  var form = select.closest('form');
+  if (!form) return;
+  var isSQLite = select.value === 'sqlite';
+  form.querySelectorAll('.gb-db-server').forEach(function(el) { el.style.display = isSQLite ? 'none' : 'flex'; });
+  form.querySelectorAll('.gb-db-sqlite').forEach(function(el) { el.style.display = isSQLite ? 'flex' : 'none'; });
+}
+document.querySelectorAll('.gb-db-engine').forEach(function(sel) { gbToggleDBFields(sel); });
 </script>
 </body>
 </html>`))
@@ -497,20 +510,20 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
   <input type="hidden" name="csrf_token" value="{{.CSRF}}">
   <div>Nome: <input type="text" name="name" required></div>
   <div>Engine:
-    <select name="engine">
+    <select name="engine" class="gb-db-engine" onchange="gbToggleDBFields(this)">
       <option value="postgresql">PostgreSQL</option>
       <option value="mysql">MySQL</option>
       <option value="mariadb">MariaDB</option>
       <option value="sqlite">SQLite</option>
     </select>
   </div>
-  <div>Host: <input type="text" name="host"></div>
-  <div>Porta: <input type="number" name="port"></div>
-  <div>Usuário: <input type="text" name="username"></div>
-  <div>Senha: <input type="password" name="password"></div>
-  <div>Banco específico: <input type="text" name="database"></div>
-  <div><label><input type="checkbox" name="all_databases"> Todos os bancos (ignora o campo acima)</label></div>
-  <div>Caminho SQLite (só para engine=sqlite):
+  <div class="gb-db-server">Host: <input type="text" name="host"></div>
+  <div class="gb-db-server">Porta: <input type="number" name="port"></div>
+  <div class="gb-db-server">Usuário: <input type="text" name="username"></div>
+  <div class="gb-db-server">Senha: <input type="password" name="password"></div>
+  <div class="gb-db-server">Banco específico: <input type="text" name="database"></div>
+  <div class="gb-db-server"><label><input type="checkbox" name="all_databases"> Todos os bancos (ignora o campo acima)</label></div>
+  <div class="gb-db-sqlite">Caminho do arquivo SQLite:
     <div class="gb-path-row">
       <input type="text" id="db_sqlitepath" name="sqlite_path">
       <button type="button" class="secondary" onclick="gbOpenPicker('db_sqlitepath','{{.Base}}')">Escolher arquivo…</button>
@@ -685,20 +698,20 @@ var editDBTmpl = template.Must(template.New("edit-db").Funcs(funcs).Parse(`
   <input type="hidden" name="kind" value="database">
   <div>Nome: <input type="text" name="name" value="{{.Job.Name}}" required></div>
   <div>Engine:
-    <select name="engine">
+    <select name="engine" class="gb-db-engine" onchange="gbToggleDBFields(this)">
       <option value="postgresql" {{if eq .Job.Engine "postgresql"}}selected{{end}}>PostgreSQL</option>
       <option value="mysql" {{if eq .Job.Engine "mysql"}}selected{{end}}>MySQL</option>
       <option value="mariadb" {{if eq .Job.Engine "mariadb"}}selected{{end}}>MariaDB</option>
       <option value="sqlite" {{if eq .Job.Engine "sqlite"}}selected{{end}}>SQLite</option>
     </select>
   </div>
-  <div>Host: <input type="text" name="host" value="{{.Job.Host}}"></div>
-  <div>Porta: <input type="number" name="port" value="{{.Job.Port}}"></div>
-  <div>Usuário: <input type="text" name="username" value="{{.Job.Username}}"></div>
-  <div>Senha (não é salva; preencha de novo se este job foi recriado com credencial nova): <input type="password" name="password"></div>
-  <div>Banco específico: <input type="text" name="database" value="{{.Job.Database}}"></div>
-  <div><label><input type="checkbox" name="all_databases"> Todos os bancos (ignora o campo acima)</label></div>
-  <div>Caminho SQLite (só para engine=sqlite):
+  <div class="gb-db-server">Host: <input type="text" name="host" value="{{.Job.Host}}"></div>
+  <div class="gb-db-server">Porta: <input type="number" name="port" value="{{.Job.Port}}"></div>
+  <div class="gb-db-server">Usuário: <input type="text" name="username" value="{{.Job.Username}}"></div>
+  <div class="gb-db-server">Senha (não é salva; preencha de novo se este job foi recriado com credencial nova): <input type="password" name="password"></div>
+  <div class="gb-db-server">Banco específico: <input type="text" name="database" value="{{.Job.Database}}"></div>
+  <div class="gb-db-server"><label><input type="checkbox" name="all_databases"> Todos os bancos (ignora o campo acima)</label></div>
+  <div class="gb-db-sqlite">Caminho do arquivo SQLite:
     <div class="gb-path-row">
       <input type="text" id="edb_sqlitepath" name="sqlite_path" value="{{.Job.SQLitePath}}">
       <button type="button" class="secondary" onclick="gbOpenPicker('edb_sqlitepath','{{.Base}}')">Escolher arquivo…</button>
