@@ -446,6 +446,23 @@ function gbToggleSSHFields(select) {
   form.querySelectorAll('.gb-dest-ssh').forEach(function(el) { el.style.display = isSSH ? 'flex' : 'none'; });
 }
 document.querySelectorAll('.gb-dest-type').forEach(function(sel) { gbToggleSSHFields(sel); });
+
+// --- "Apagar no destino..." (rsync --delete) is a destructive, one-way
+// action — warn before letting the operator turn it ON. Unchecking back
+// off needs no confirmation (that's always the safe direction).
+function gbConfirmDeleteExtraneous(checkbox) {
+  if (!checkbox.checked) return;
+  var ok = confirm(
+    'Atenção: isto é um comando perigoso.\n\n' +
+    'Com esta opção marcada, toda execução desta tarefa vai APAGAR permanentemente ' +
+    'qualquer arquivo que esteja no destino mas não exista (mais) na origem — ' +
+    'sem possibilidade de desfazer.\n\n' +
+    'Confirma que quer ativar isso?'
+  );
+  if (!ok) {
+    checkbox.checked = false;
+  }
+}
 </script>
 </body>
 </html>`))
@@ -501,7 +518,7 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
       <button type="button" class="secondary" onclick="gbOpenPicker('file_dest','{{.Base}}')">Escolher diretório…</button>
     </div>
   </div>
-  <div><label><input type="hidden" name="delete_extraneous_present" value="1"><input type="checkbox" name="delete_extraneous" checked> Apagar no destino o que não existe mais na origem (mirror exato, rsync --delete)</label></div>
+  <div><label><input type="hidden" name="delete_extraneous_present" value="1"><input type="checkbox" name="delete_extraneous" onchange="gbConfirmDeleteExtraneous(this)"> Apagar no destino o que não existe mais na origem (mirror exato, rsync --delete)</label></div>
   <div>Tipo de destino:
     <select name="dest_type" class="gb-dest-type" onchange="gbToggleSSHFields(this)">
       <option value="local">Local</option>
@@ -676,7 +693,7 @@ var editFileTmpl = template.Must(template.New("edit-file").Funcs(funcs).Parse(`
       <button type="button" class="secondary" onclick="gbOpenPicker('efile_dest','{{.Base}}')">Escolher diretório…</button>
     </div>
   </div>
-  <div><label><input type="hidden" name="delete_extraneous_present" value="1"><input type="checkbox" name="delete_extraneous" {{if .Job.DeleteExtraneous}}checked{{end}}> Apagar no destino o que não existe mais na origem (mirror exato, rsync --delete)</label></div>
+  <div><label><input type="hidden" name="delete_extraneous_present" value="1"><input type="checkbox" name="delete_extraneous" onchange="gbConfirmDeleteExtraneous(this)" {{if .Job.DeleteExtraneous}}checked{{end}}> Apagar no destino o que não existe mais na origem (mirror exato, rsync --delete)</label></div>
   <div>Tipo de destino:
     <select name="dest_type" class="gb-dest-type" onchange="gbToggleSSHFields(this)">
       <option value="local" {{if eq .Job.DestType "local"}}selected{{end}}>Local</option>
