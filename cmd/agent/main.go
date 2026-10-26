@@ -228,7 +228,13 @@ func cmdHeartbeat(args []string) {
 	var pendingResults []poller.CommandResult
 
 	beat := func() {
-		resp, err := client.Poll("idle", pendingResults)
+		jobs, _ := store.ListJobs(ctx, agentID)
+		jobInfos := make([]poller.JobInfo, 0, len(jobs))
+		for _, j := range jobs {
+			jobInfos = append(jobInfos, poller.JobInfo{ID: j.ID.String(), Name: j.Name, Kind: j.Kind})
+		}
+
+		resp, err := client.Poll("idle", pendingResults, jobInfos)
 		if err != nil {
 			log.Println("heartbeat error:", err)
 			return

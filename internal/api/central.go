@@ -111,9 +111,16 @@ type commandResultDTO struct {
 	Result    map[string]any `json:"result"`
 }
 
+type jobInfoDTO struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+}
+
 type pollRequest struct {
 	Status         string             `json:"status"`
 	CommandResults []commandResultDTO `json:"command_results"`
+	Jobs           []jobInfoDTO       `json:"jobs"`
 }
 
 type pollResponse struct {
@@ -141,6 +148,14 @@ func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
 		log.Println("poll: heartbeat:", err)
 		httpError(w, http.StatusInternalServerError, "internal error")
 		return
+	}
+
+	jobSnapshot := make([]db.RemoteJobInfo, 0, len(req.Jobs))
+	for _, j := range req.Jobs {
+		jobSnapshot = append(jobSnapshot, db.RemoteJobInfo{JobID: j.ID, Name: j.Name, Kind: j.Kind})
+	}
+	if err := s.Store.ReplaceAgentJobsSnapshot(ctx, agentID, jobSnapshot); err != nil {
+		log.Println("poll: replace jobs snapshot:", err) // non-fatal: dashboard just shows a stale list
 	}
 
 	for _, cr := range req.CommandResults {
@@ -363,6 +378,27 @@ form.logout { display:inline; margin-left: 1rem; }
 <tr><td colspan="5">nenhum agente cadastrado ainda</td></tr>
 {{end}}
 </table>
+
+<h2>Tarefas de todos os servidores</h2>
+<table>
+<tr><th>Servidor</th><th>Tarefa</th><th>Tipo</th><th>Ação</th></tr>
+{{range .Jobs}}
+<tr>
+  <td>{{.AgentName}}</td>
+  <td>{{.Name}}</td>
+  <td>{{if eq .Kind "files"}}Arquivos{{else}}Banco de dados{{end}}</td>
+  <td>
+    <form method="post" action="/agents/{{.AgentID}}/jobs/{{.JobID}}/run" style="display:inline-flex; gap:0.5rem; align-items:center">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      {{if eq .Kind "database"}}<input type="password" name="password" placeholder="senha (se necessário)">{{end}}
+      <button type="submit">Executar</button>
+    </form>
+  </td>
+</tr>
+{{else}}
+<tr><td colspan="4">nenhuma tarefa criada ainda em nenhum servidor</td></tr>
+{{end}}
+</table>
 </body>
 </html>`))
 
@@ -372,6 +408,14 @@ type dashboardAgentView struct {
 	Hostname string
 	Status   string
 	LastSeen string
+}
+
+type dashboardJobView struct {
+	AgentID   string
+	AgentName string
+	JobID     string
+	Name      string
+	Kind      string
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -398,8 +442,23 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	jobRows, err := s.Store.ListAllAgentJobs(ctx)
+	if err != nil {
+		log.Println("dashboard: list all agent jobs:", err) // non-fatal: show the page without the jobs table
+	}
+	jobViews := make([]dashboardJobView, 0, len(jobRows))
+	for _, j := range jobRows {
+		jobViews = append(jobViews, dashboardJobView{
+			AgentID: j.AgentID.String(), AgentName: j.AgentName, JobID: j.JobID, Name: j.Name, Kind: j.Kind,
+		})
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := dashboardTmpl.Execute(w, struct{ Agents []dashboardAgentView }{views}); err != nil {
+	if err := dashboardTmpl.Execute(w, struct {
+		Agents []dashboardAgentView
+		Jobs   []dashboardJobView
+		CSRF   string
+	}{views, jobViews, s.Auth.CSRFToken(r)}); err != nil {
 		log.Println("dashboard: render:", err)
 	}
 }

@@ -101,10 +101,20 @@ type PollResponse struct {
 	Commands []QueuedCommand `json:"commands"`
 }
 
-// Poll sends one heartbeat with the agent's current status and any results
-// from previously received commands, and returns newly queued commands.
-func (c *Client) Poll(status string, results []CommandResult) (PollResponse, error) {
-	body, _ := json.Marshal(map[string]any{"status": status, "command_results": results})
+// JobInfo is one locally-defined job summary piggybacked onto every
+// heartbeat, so the Central can show a combined "Tarefas de todos os
+// servidores" table without a live remote round trip per agent.
+type JobInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+}
+
+// Poll sends one heartbeat with the agent's current status, its current
+// list of job definitions, and any results from previously received
+// commands; it returns newly queued commands.
+func (c *Client) Poll(status string, results []CommandResult, jobs []JobInfo) (PollResponse, error) {
+	body, _ := json.Marshal(map[string]any{"status": status, "command_results": results, "jobs": jobs})
 	req, err := http.NewRequest(http.MethodPost, c.CentralURL+"/api/v1/agents/poll", bytes.NewReader(body))
 	if err != nil {
 		return PollResponse{}, err

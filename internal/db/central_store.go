@@ -337,6 +337,73 @@ func generateToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
+// RemoteJobInfo is one job entry as reported by an agent's heartbeat.
+type RemoteJobInfo struct {
+	JobID string
+	Name  string
+	Kind  string
+}
+
+// ReplaceAgentJobsSnapshot overwrites the cached job list for one agent.
+// Called on every heartbeat (piggybacked on the poll, no extra round trip)
+// so the Central's dashboard can show an up-to-date combined "Tarefas de
+// todos os servidores" table without waiting on a live remote command.
+func (s *Store) ReplaceAgentJobsSnapshot(ctx context.Context, agentID uuid.UUID, jobs []RemoteJobInfo) error {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("replace agent jobs snapshot: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `DELETE FROM agent_jobs_cache WHERE agent_id=$1`, agentID); err != nil {
+		return fmt.Errorf("replace agent jobs snapshot: clear: %w", err)
+	}
+	for _, j := range jobs {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO agent_jobs_cache (agent_id, job_id, name, kind) VALUES ($1, $2, $3, $4)
+		`, agentID, j.JobID, j.Name, j.Kind); err != nil {
+			return fmt.Errorf("replace agent jobs snapshot: insert: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("replace agent jobs snapshot: commit: %w", err)
+	}
+	return nil
+}
+
+// AllAgentsJobRow is one row of the dashboard's combined jobs table.
+type AllAgentsJobRow struct {
+	AgentID   uuid.UUID
+	AgentName string
+	JobID     string
+	Name      string
+	Kind      string
+}
+
+// ListAllAgentJobs returns the cached job list across every agent, for the
+// dashboard's "Tarefas de todos os servidores" table.
+func (s *Store) ListAllAgentJobs(ctx context.Context) ([]AllAgentsJobRow, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT c.agent_id, a.name, c.job_id, c.name, c.kind
+		FROM agent_jobs_cache c
+		JOIN agents a ON a.id = c.agent_id
+		ORDER BY a.name, c.name
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list all agent jobs: %w", err)
+	}
+	defer rows.Close()
+	var out []AllAgentsJobRow
+	for rows.Next() {
+		var row AllAgentsJobRow
+		if err := rows.Scan(&row.AgentID, &row.AgentName, &row.JobID, &row.Name, &row.Kind); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
 func hashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])

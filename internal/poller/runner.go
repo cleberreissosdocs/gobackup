@@ -83,7 +83,13 @@ func (r *Runner) Run(ctx context.Context, interval time.Duration) {
 	for {
 		client, ok := r.clientFor(ctx)
 		if ok {
-			resp, err := client.Poll("idle", pendingResults)
+			jobs, _ := r.Store.ListJobs(ctx, r.AgentID)
+			jobInfos := make([]JobInfo, 0, len(jobs))
+			for _, j := range jobs {
+				jobInfos = append(jobInfos, JobInfo{ID: j.ID.String(), Name: j.Name, Kind: j.Kind})
+			}
+
+			resp, err := client.Poll("idle", pendingResults, jobInfos)
 			r.mu.Lock()
 			r.lastBeatAt = time.Now()
 			if err != nil {
