@@ -454,6 +454,23 @@ func (s *Store) GetAgentJobStatus(ctx context.Context, agentID uuid.UUID, jobID 
 	return status, percent, message, true, nil
 }
 
+// DeleteAgent removes an agent and (via ON DELETE CASCADE on agents.id)
+// every row that references it: destinations, db_connections, backup_jobs,
+// job_executions, agent_commands, agent_jobs_cache, agent_execution_status.
+// It does NOT touch anything on the agent's own machine — the agent keeps
+// running and its local Postgres/jobs are untouched; it would just need to
+// be registered again (via its own "Configurações" page) to reconnect.
+func (s *Store) DeleteAgent(ctx context.Context, agentID uuid.UUID) error {
+	tag, err := s.Pool.Exec(ctx, `DELETE FROM agents WHERE id=$1`, agentID)
+	if err != nil {
+		return fmt.Errorf("delete agent: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("delete agent: not found")
+	}
+	return nil
+}
+
 func hashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])

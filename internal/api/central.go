@@ -38,6 +38,7 @@ func (s *Server) routes() {
 	s.Mux.HandleFunc("POST /api/v1/agents/{id}/commands", s.Auth.RequireLogin(s.handleEnqueueCommand))
 	s.Mux.HandleFunc("POST /api/v1/notification-channels", s.Auth.RequireLogin(s.handleCreateNotificationChannel))
 	s.Mux.HandleFunc("GET /", s.Auth.RequireLogin(s.handleDashboard))
+	s.Mux.HandleFunc("POST /agents/{id}/delete", s.Auth.RequireLoginAndCSRF(s.handleDeleteAgent))
 	s.Mux.HandleFunc("GET /notifications", s.Auth.RequireLogin(s.handleNotificationsPage))
 	s.Mux.HandleFunc("POST /notifications", s.Auth.RequireLoginAndCSRF(s.handleNotificationsSubmit))
 	s.Mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -376,6 +377,9 @@ th { background: #222; }
 a { color:#9ad1ff; }
 nav { margin-bottom: 1rem; }
 form.logout { display:inline; margin-left: 1rem; }
+button { background:#2d6cdf; color:#fff; border:none; padding:0.3rem 0.8rem; cursor:pointer; border-radius:4px; }
+button.secondary { background:#8a2d2d; }
+button.secondary:hover { background:#a83a3a; }
 </style>
 </head>
 <body>
@@ -390,7 +394,13 @@ form.logout { display:inline; margin-left: 1rem; }
   <td>{{.Hostname}}</td>
   <td class="{{.Status}}">{{.Status}}</td>
   <td>{{.LastSeen}}</td>
-  <td><a href="/agents/{{.ID}}/">administrar</a></td>
+  <td>
+    <a href="/agents/{{.ID}}/">administrar</a>
+    <form method="post" action="/agents/{{.ID}}/delete" style="display:inline" onsubmit="return confirm('Apagar o agente \'{{.Name}}\' do Central? O agente continua rodando no servidor dele, mas some deste painel e precisa ser registrado de novo (tela Configurações do agente) para reaparecer.');">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      <button type="submit" class="secondary" style="margin-left:0.8rem">Apagar</button>
+    </form>
+  </td>
 </tr>
 {{else}}
 <tr><td colspan="5">nenhum agente cadastrado ainda</td></tr>
@@ -484,6 +494,25 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}{views, jobViews, s.Auth.CSRFToken(r)}); err != nil {
 		log.Println("dashboard: render:", err)
 	}
+}
+
+// handleDeleteAgent removes an agent's registration from the Central — it
+// does NOT reach into the agent itself (no remote command is sent), so the
+// agent keeps running and keeps its own local jobs/Postgres untouched; it
+// would just need to be registered again (via its own "Configurações" page)
+// to reappear on this dashboard.
+func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
+	agentID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httpError(w, http.StatusBadRequest, "id de agente inválido")
+		return
+	}
+	if err := s.Store.DeleteAgent(r.Context(), agentID); err != nil {
+		log.Println("delete agent:", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func bearerToken(r *http.Request) string {
