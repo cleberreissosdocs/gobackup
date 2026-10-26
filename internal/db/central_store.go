@@ -304,6 +304,31 @@ type AgentView struct {
 // signal without being trigger-happy on a single dropped packet.
 const staleAfter = 5 * time.Second
 
+// GetAgentName returns the current display name of one agent (for
+// pre-filling the rename form).
+func (s *Store) GetAgentName(ctx context.Context, agentID uuid.UUID) (string, error) {
+	var name string
+	err := s.Pool.QueryRow(ctx, `SELECT name FROM agents WHERE id=$1`, agentID).Scan(&name)
+	if err != nil {
+		return "", fmt.Errorf("get agent name: %w", err)
+	}
+	return name, nil
+}
+
+// RenameAgent changes how an agent is displayed across the Central UI
+// (dashboard, jobs table, health wallboard). Purely cosmetic: it does not
+// touch the agent's own hostname, token or anything on its machine.
+func (s *Store) RenameAgent(ctx context.Context, agentID uuid.UUID, name string) error {
+	tag, err := s.Pool.Exec(ctx, `UPDATE agents SET name=$1 WHERE id=$2`, name, agentID)
+	if err != nil {
+		return fmt.Errorf("rename agent: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("rename agent: not found")
+	}
+	return nil
+}
+
 func (s *Store) ListAgents(ctx context.Context) ([]AgentView, error) {
 	rows, err := s.Pool.Query(ctx, `
 		SELECT id, name, hostname, status, last_seen_at

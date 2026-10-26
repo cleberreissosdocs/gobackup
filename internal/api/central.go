@@ -40,6 +40,8 @@ func (s *Server) routes() {
 	s.Mux.HandleFunc("GET /", s.Auth.RequireLogin(s.handleDashboard))
 	s.Mux.HandleFunc("GET /dashboard", s.Auth.RequireLogin(s.handleHealthDashboard))
 	s.Mux.HandleFunc("POST /agents/{id}/delete", s.Auth.RequireLoginAndCSRF(s.handleDeleteAgent))
+	s.Mux.HandleFunc("GET /agents/{id}/rename", s.Auth.RequireLogin(s.handleRenameAgentForm))
+	s.Mux.HandleFunc("POST /agents/{id}/rename", s.Auth.RequireLoginAndCSRF(s.handleRenameAgentSubmit))
 	s.Mux.HandleFunc("GET /notifications", s.Auth.RequireLogin(s.handleNotificationsPage))
 	s.Mux.HandleFunc("POST /notifications", s.Auth.RequireLoginAndCSRF(s.handleNotificationsSubmit))
 	s.Mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -424,7 +426,7 @@ button.secondary:hover { background:#a83a3a; }
   <td>{{.LastSeen}}</td>
   <td>{{if .HasFailure}}<span style="color:#f44336; font-size:1.4rem;" title="alguma tarefa deste agente falhou na última execução">&#9679;</span>{{else}}<span style="color:#4caf50; font-size:1.4rem;" title="nenhuma falha nas últimas execuções">&#9679;</span>{{end}}</td>
   <td style="white-space:nowrap;">
-    <a href="/agents/{{.ID}}/">administrar</a><span style="display:inline-block; width:2rem;"></span><span style="border-left:1px solid #444; padding-left:1rem;">
+    <a href="/agents/{{.ID}}/">administrar</a><span style="display:inline-block; width:2rem;"></span><a href="/agents/{{.ID}}/rename">renomear</a><span style="display:inline-block; width:2rem;"></span><span style="border-left:1px solid #444; padding-left:1rem;">
     <form method="post" action="/agents/{{.ID}}/delete" style="display:inline" onsubmit="return confirm('Apagar o agente \'{{.Name}}\' do Central? O agente continua rodando no servidor dele, mas some deste painel e precisa ser registrado de novo (tela Configurações do agente) para reaparecer.');">
       <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
       <button type="submit" class="secondary">Apagar</button>
@@ -684,6 +686,83 @@ func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.Store.DeleteAgent(r.Context(), agentID); err != nil {
 		log.Println("delete agent:", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+var renameAgentTmpl = template.Must(template.New("rename-agent").Parse(`<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>GoBackup Central — Renomear agente</title>
+<style>
+body { font-family: sans-serif; margin: 2rem; background:#111; color:#eee; }
+a { color:#9ad1ff; }
+form { max-width:420px; }
+input[type=text] {
+  background:#1b1b22; border:1px solid #444; color:#eee; border-radius:4px; padding:0.45rem 0.6rem; width:100%; margin:0.4rem 0 1.2rem; box-sizing:border-box; font-size:1rem;
+}
+input:focus { outline:none; border-color:#2d6cdf; }
+button { background:#2d6cdf; color:#fff; border:none; padding:0.45rem 1.1rem; cursor:pointer; border-radius:4px; font-size:0.95rem; }
+button:hover { background:#3a7ef0; }
+label { display:block; color:#9aa0ab; font-size:0.85rem; text-transform:uppercase; letter-spacing:0.04em; }
+</style>
+</head>
+<body>
+<h1>Renomear agente</h1>
+<form method="post" action="/agents/{{.AgentID}}/rename">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+  <label for="name">Nome de exibição</label>
+  <input type="text" id="name" name="name" value="{{.CurrentName}}" required autofocus>
+  <div><button type="submit">Salvar</button></div>
+</form>
+<p style="margin-top:1.5rem;"><a href="/">&larr; voltar ao dashboard</a></p>
+</body>
+</html>`))
+
+// handleRenameAgentForm shows the small rename form, pre-filled with the
+// agent's current display name.
+func (s *Server) handleRenameAgentForm(w http.ResponseWriter, r *http.Request) {
+	agentID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httpError(w, http.StatusBadRequest, "id de agente inválido")
+		return
+	}
+	name, err := s.Store.GetAgentName(r.Context(), agentID)
+	if err != nil {
+		log.Println("rename agent form:", err)
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := renameAgentTmpl.Execute(w, map[string]any{
+		"AgentID":     agentID.String(),
+		"CurrentName": name,
+		"CSRF":        s.Auth.CSRFToken(r),
+	}); err != nil {
+		log.Println("rename agent form: render:", err)
+	}
+}
+
+// handleRenameAgentSubmit applies the new display name. Purely cosmetic —
+// it only changes how the agent is labeled across the Central's own UI
+// (dashboard, jobs table, health wallboard); nothing is sent to the agent.
+func (s *Server) handleRenameAgentSubmit(w http.ResponseWriter, r *http.Request) {
+	agentID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httpError(w, http.StatusBadRequest, "id de agente inválido")
+		return
+	}
+	r.ParseForm()
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		http.Error(w, "nome não pode ser vazio", http.StatusBadRequest)
+		return
+	}
+	if err := s.Store.RenameAgent(r.Context(), agentID, name); err != nil {
+		log.Println("rename agent:", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
