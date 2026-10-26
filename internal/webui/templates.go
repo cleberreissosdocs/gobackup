@@ -167,6 +167,20 @@ a.status-running:hover { filter: brightness(1.15); }
 .gb-sched-day { background: var(--gb-card-2); color: var(--gb-text-muted); border:1px solid var(--gb-border); padding:0.35rem 0.6rem; border-radius: var(--gb-radius-sm); font-size:0.8rem; }
 .gb-sched-day.active { background: var(--gb-accent); border-color: var(--gb-accent); color:#fff; }
 .gb-sched-summary { margin:0.8rem 0 0; font-size:0.84rem; color: var(--gb-text-muted); }
+.gb-card {
+  border: 1px solid var(--gb-border); background: linear-gradient(160deg, var(--gb-card) 0%, var(--gb-bg-elev) 100%);
+  border-radius: var(--gb-radius); box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+}
+.gb-kind-choice {
+  flex: 1; min-width: 220px; background: var(--gb-bg-elev); border: 1px solid var(--gb-border);
+  border-radius: var(--gb-radius-sm); padding: 1.5rem 1.25rem; cursor: pointer; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 0.4rem;
+  transition: border-color .15s ease, transform .1s ease, background .15s ease;
+}
+.gb-kind-choice:hover { border-color: var(--gb-accent); background: #1a1c25; transform: translateY(-2px); }
+.gb-kind-icon { font-size: 2rem; }
+.gb-kind-title { font-weight: 600; font-size: 1rem; color: var(--gb-text); }
+.gb-kind-desc { font-size: 0.78rem; color: var(--gb-text-muted); }
 small { color: var(--gb-text-muted); }
 #gb-picker-modal { display:none; position:fixed; inset:0; background:rgba(5,6,9,0.75); backdrop-filter: blur(2px); align-items:center; justify-content:center; z-index:1000; }
 #gb-picker-box { background: var(--gb-card); border:1px solid var(--gb-border); border-radius: var(--gb-radius); padding:1.5rem; width:90%; max-width:600px; max-height:80vh; display:flex; flex-direction:column; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
@@ -355,6 +369,36 @@ function gbInitSchedule(root) {
   }
 }
 document.querySelectorAll('.gb-sched').forEach(gbInitSchedule);
+
+// --- "Adicionar nova tarefa" flow: button -> choose kind -> show the
+// matching form. Keeps the two full create-job forms out of view until
+// the operator explicitly asks to create something, instead of showing
+// both forms mixed together on the page at all times.
+function gbShowNewJob() {
+  var trigger = document.getElementById('gb-newjob-trigger');
+  var choice = document.getElementById('gb-newjob-choice');
+  if (!trigger || !choice) return;
+  trigger.style.display = 'none';
+  choice.style.display = 'block';
+  document.getElementById('gb-newjob-file').style.display = 'none';
+  document.getElementById('gb-newjob-db').style.display = 'none';
+}
+function gbHideNewJob() {
+  var trigger = document.getElementById('gb-newjob-trigger');
+  var choice = document.getElementById('gb-newjob-choice');
+  if (!trigger || !choice) return;
+  trigger.style.display = 'block';
+  choice.style.display = 'none';
+  document.getElementById('gb-newjob-file').style.display = 'none';
+  document.getElementById('gb-newjob-db').style.display = 'none';
+}
+function gbShowJobForm(kind) {
+  var choice = document.getElementById('gb-newjob-choice');
+  if (!choice) return;
+  choice.style.display = 'none';
+  document.getElementById('gb-newjob-file').style.display = kind === 'file' ? 'block' : 'none';
+  document.getElementById('gb-newjob-db').style.display = kind === 'db' ? 'block' : 'none';
+}
 </script>
 </body>
 </html>`))
@@ -372,7 +416,28 @@ var loginTmpl = template.Must(template.New("login").Parse(`
 var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
 <h1>{{.Name}}</h1>
 
-<fieldset>
+<div id="gb-newjob-trigger">
+  <button type="button" onclick="gbShowNewJob()">+ Adicionar nova tarefa</button>
+</div>
+
+<div id="gb-newjob-choice" class="gb-card" style="display:none; padding:1.75rem 1.5rem; margin-bottom:1.75rem;">
+  <h3 style="margin-top:0;">Que tipo de tarefa você quer criar?</h3>
+  <div style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1.2rem;">
+    <button type="button" class="gb-kind-choice" onclick="gbShowJobForm('file')">
+      <span class="gb-kind-icon">📁</span>
+      <span class="gb-kind-title">Arquivos</span>
+      <span class="gb-kind-desc">Copia diretórios via rsync (local, NAS ou SSH)</span>
+    </button>
+    <button type="button" class="gb-kind-choice" onclick="gbShowJobForm('db')">
+      <span class="gb-kind-icon">🗄️</span>
+      <span class="gb-kind-title">Banco de dados</span>
+      <span class="gb-kind-desc">Dump de PostgreSQL, MySQL, MariaDB ou SQLite</span>
+    </button>
+  </div>
+  <button type="button" class="secondary" onclick="gbHideNewJob()">Cancelar</button>
+</div>
+
+<fieldset id="gb-newjob-file" style="display:none;">
 <legend>Nova tarefa de arquivos</legend>
 <form method="post" action="{{.Base}}/jobs/file">
   <input type="hidden" name="csrf_token" value="{{.CSRF}}">
@@ -422,10 +487,11 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
     {{scheduleBuilder "file" ""}}
   </div>
   <button type="submit">Criar</button>
+  <button type="button" class="secondary" onclick="gbShowNewJob()" style="margin-left:0.6rem;">&larr; voltar</button>
 </form>
 </fieldset>
 
-<fieldset>
+<fieldset id="gb-newjob-db" style="display:none;">
 <legend>Nova tarefa de banco de dados</legend>
 <form method="post" action="{{.Base}}/jobs/db">
   <input type="hidden" name="csrf_token" value="{{.CSRF}}">
@@ -483,6 +549,7 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
     {{scheduleBuilder "db" ""}}
   </div>
   <button type="submit">Criar</button>
+  <button type="button" class="secondary" onclick="gbShowNewJob()" style="margin-left:0.6rem;">&larr; voltar</button>
 </form>
 </fieldset>
 
