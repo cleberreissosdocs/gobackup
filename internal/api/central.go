@@ -15,16 +15,19 @@ import (
 
 	"github.com/cleber/gobackup/internal/db"
 	"github.com/cleber/gobackup/internal/notify"
+	"github.com/cleber/gobackup/internal/webauth"
+	"github.com/cleber/gobackup/internal/webui"
 )
 
 type Server struct {
 	Store    *db.Store
 	Notifier *notify.Dispatcher
+	Auth     *webauth.Manager
 	Mux      *http.ServeMux
 }
 
 func NewServer(store *db.Store) *Server {
-	s := &Server{Store: store, Notifier: &notify.Dispatcher{Store: store}, Mux: http.NewServeMux()}
+	s := &Server{Store: store, Notifier: &notify.Dispatcher{Store: store}, Auth: webauth.NewManager(store), Mux: http.NewServeMux()}
 	s.routes()
 	return s
 }
@@ -34,11 +37,33 @@ func (s *Server) routes() {
 	s.Mux.HandleFunc("POST /api/v1/agents/poll", s.handlePoll)
 	s.Mux.HandleFunc("POST /api/v1/agents/{id}/commands", s.handleEnqueueCommand)
 	s.Mux.HandleFunc("POST /api/v1/notification-channels", s.handleCreateNotificationChannel)
-	s.Mux.HandleFunc("GET /", s.handleDashboard)
+	s.Mux.HandleFunc("GET /", s.Auth.RequireLogin(s.handleDashboard))
+	s.Mux.HandleFunc("GET /notifications", s.Auth.RequireLogin(s.handleNotificationsPage))
+	s.Mux.HandleFunc("POST /notifications", s.Auth.RequireLogin(s.handleNotificationsSubmit))
 	s.Mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
+
+	site := &webui.Site{
+		Auth:      s.Auth,
+		IsCentral: true,
+		GetRunner: func(r *http.Request) (webui.Runner, string, error) {
+			agentID, err := uuid.Parse(r.PathValue("id"))
+			if err != nil {
+				return nil, "", fmt.Errorf("invalid agent id")
+			}
+			_, name, err := s.Store.AgentTenantAndName(r.Context(), agentID)
+			if err != nil {
+				return nil, "", fmt.Errorf("agent not found")
+			}
+			return &webui.CentralRunner{Store: s.Store, AgentID: agentID}, name, nil
+		},
+		BasePath: func(r *http.Request) string {
+			return "/agents/" + r.PathValue("id")
+		},
+	}
+	site.Mount(s.Mux, "/agents/{id}")
 }
 
 type registerRequest struct {
@@ -222,6 +247,84 @@ func (s *Server) handleCreateNotificationChannel(w http.ResponseWriter, r *http.
 	writeJSON(w, http.StatusCreated, map[string]string{"channel_id": id.String()})
 }
 
+var notificationsTmpl = template.Must(template.New("notifications").Parse(`
+<h1>Canais de notificação</h1>
+{{if .Message}}<p>{{.Message}}</p>{{end}}
+<form method="post" action="/notifications">
+  <div>Tipo:
+    <select name="type">
+      <option value="email">E-mail</option>
+      <option value="telegram">Telegram</option>
+    </select>
+  </div>
+  <fieldset>
+  <legend>E-mail</legend>
+  <div>SMTP host: <input type="text" name="smtp_host"></div>
+  <div>SMTP porta: <input type="number" name="smtp_port" value="25"></div>
+  <div>Usuário SMTP (opcional): <input type="text" name="smtp_user"></div>
+  <div>Senha SMTP (opcional): <input type="password" name="smtp_password"></div>
+  <div>De: <input type="text" name="from"></div>
+  <div>Para: <input type="text" name="to"></div>
+  </fieldset>
+  <fieldset>
+  <legend>Telegram</legend>
+  <div>Bot token: <input type="text" name="bot_token"></div>
+  <div>Chat ID: <input type="text" name="chat_id"></div>
+  </fieldset>
+  <button type="submit">Adicionar canal</button>
+</form>
+<p><a href="/">&larr; voltar ao dashboard</a></p>
+`))
+
+func (s *Server) handleNotificationsPage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	notificationsTmpl.Execute(w, map[string]any{})
+}
+
+func (s *Server) handleNotificationsSubmit(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	r.ParseForm()
+	chType := r.FormValue("type")
+
+	var config map[string]any
+	switch chType {
+	case "email":
+		port := 25
+		fmt.Sscanf(r.FormValue("smtp_port"), "%d", &port)
+		config = map[string]any{
+			"smtp_host": r.FormValue("smtp_host"),
+			"smtp_port": port,
+			"username":  r.FormValue("smtp_user"),
+			"password":  r.FormValue("smtp_password"),
+			"from":      r.FormValue("from"),
+			"to":        r.FormValue("to"),
+		}
+	case "telegram":
+		config = map[string]any{
+			"bot_token": r.FormValue("bot_token"),
+			"chat_id":   r.FormValue("chat_id"),
+		}
+	default:
+		httpError(w, http.StatusBadRequest, "tipo inválido")
+		return
+	}
+
+	tenantID, err := s.Store.EnsureDefaultTenant(ctx)
+	if err != nil {
+		log.Println("notifications: ensure tenant:", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if _, err := s.Store.CreateNotificationChannel(ctx, tenantID, chType, config, nil); err != nil {
+		log.Println("notifications: create:", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	notificationsTmpl.Execute(w, map[string]any{"Message": "Canal adicionado com sucesso."})
+}
+
 var dashboardTmpl = template.Must(template.New("dashboard").Parse(`<!doctype html>
 <html>
 <head>
@@ -236,27 +339,34 @@ th { background: #222; }
 .online { color: #4caf50; font-weight: bold; }
 .offline { color: #f44336; font-weight: bold; }
 .unknown { color: #999; }
+a { color:#9ad1ff; }
+nav { margin-bottom: 1rem; }
+form.logout { display:inline; margin-left: 1rem; }
 </style>
 </head>
 <body>
+<nav><a href="/notifications">Canais de notificação</a>
+<form class="logout" method="post" action="/logout"><button type="submit">Sair</button></form></nav>
 <h1>GoBackup Central — status dos servidores</h1>
 <table>
-<tr><th>Agente</th><th>Hostname</th><th>Status</th><th>Último heartbeat</th></tr>
+<tr><th>Agente</th><th>Hostname</th><th>Status</th><th>Último heartbeat</th><th></th></tr>
 {{range .Agents}}
 <tr>
   <td>{{.Name}}</td>
   <td>{{.Hostname}}</td>
   <td class="{{.Status}}">{{.Status}}</td>
   <td>{{.LastSeen}}</td>
+  <td><a href="/agents/{{.ID}}/">administrar</a></td>
 </tr>
 {{else}}
-<tr><td colspan="4">nenhum agente cadastrado ainda</td></tr>
+<tr><td colspan="5">nenhum agente cadastrado ainda</td></tr>
 {{end}}
 </table>
 </body>
 </html>`))
 
 type dashboardAgentView struct {
+	ID       string
 	Name     string
 	Hostname string
 	Status   string
@@ -279,6 +389,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			lastSeen = fmt.Sprintf("%s (%s atrás)", a.LastSeenAt.Local().Format("2006-01-02 15:04:05"), time.Since(*a.LastSeenAt).Round(time.Second))
 		}
 		views = append(views, dashboardAgentView{
+			ID:       a.ID.String(),
 			Name:     a.Name,
 			Hostname: a.Hostname,
 			Status:   a.Status,

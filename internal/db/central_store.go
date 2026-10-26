@@ -148,6 +148,51 @@ func (s *Store) RecordCommandResult(ctx context.Context, commandID uuid.UUID, st
 	return nil
 }
 
+// GetCommand returns the current status/result of a queued command — used
+// by the web UI to wait for a remote job's outcome after enqueueing it.
+func (s *Store) GetCommand(ctx context.Context, id uuid.UUID) (status string, result map[string]any, err error) {
+	err = s.Pool.QueryRow(ctx, `SELECT status, result FROM agent_commands WHERE id = $1`, id).Scan(&status, &result)
+	if err != nil {
+		return "", nil, fmt.Errorf("get command: %w", err)
+	}
+	return status, result, nil
+}
+
+// CommandRow is a read model for an agent's recent command/activity log.
+type CommandRow struct {
+	Type      string
+	Status    string
+	CreatedAt time.Time
+	Result    map[string]any
+}
+
+// ListRecentCommands returns the most recent commands sent to an agent,
+// newest first — used as the Central's "recent activity" proxy for
+// job_executions (which live on the agent's own local database).
+func (s *Store) ListRecentCommands(ctx context.Context, agentID uuid.UUID, limit int) ([]CommandRow, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT type, status, created_at, result
+		FROM agent_commands
+		WHERE agent_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2
+	`, agentID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list recent commands: %w", err)
+	}
+	defer rows.Close()
+
+	var out []CommandRow
+	for rows.Next() {
+		var c CommandRow
+		if err := rows.Scan(&c.Type, &c.Status, &c.CreatedAt, &c.Result); err != nil {
+			return nil, fmt.Errorf("scan command: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // AgentTenantAndName resolves the tenant and display name for an agent, so
 // callers (e.g. the notifier) can route an alert without a second round
 // trip from the caller's side.

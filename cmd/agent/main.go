@@ -14,6 +14,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"time"
 
@@ -22,6 +23,8 @@ import (
 	"github.com/cleber/gobackup/internal/db"
 	"github.com/cleber/gobackup/internal/dbjob"
 	"github.com/cleber/gobackup/internal/poller"
+	"github.com/cleber/gobackup/internal/webauth"
+	"github.com/cleber/gobackup/internal/webui"
 )
 
 func main() {
@@ -41,6 +44,10 @@ func main() {
 		cmdHeartbeat(os.Args[2:])
 	case "run-db":
 		cmdRunDB(os.Args[2:])
+	case "serve":
+		cmdServe(os.Args[2:])
+	case "create-user":
+		cmdCreateUser(os.Args[2:])
 	default:
 		usage()
 		os.Exit(1)
@@ -367,4 +374,80 @@ func cmdRunDB(args []string) {
 	}
 
 	fmt.Printf("[execution %s] OK in %s — wrote %s (%d bytes)\n", execID, elapsed, res.DestPath, res.BytesWritten)
+}
+
+func cmdServe(args []string) {
+	fs := flag.NewFlagSet("serve", flag.ExitOnError)
+	connString := fs.String("db", "", "agent's local Postgres connection string")
+	addr := fs.String("addr", ":8081", "listen address for the local web UI")
+	fs.Parse(args)
+
+	if *connString == "" {
+		fatal("missing -db")
+	}
+
+	ctx := context.Background()
+	store, err := db.Connect(ctx, *connString)
+	if err != nil {
+		fatal(err.Error())
+	}
+	defer store.Close()
+
+	hostname, _ := os.Hostname()
+	tenantID, agentID, err := store.EnsureDefaultTenantAndAgent(ctx, hostname)
+	if err != nil {
+		fatal(err.Error())
+	}
+
+	runner := &webui.LocalRunner{Store: store, TenantID: tenantID, AgentID: agentID}
+	auth := webauth.NewManager(store)
+	site := &webui.Site{
+		Auth: auth,
+		GetRunner: func(r *http.Request) (webui.Runner, string, error) {
+			return runner, hostname, nil
+		},
+	}
+
+	mux := http.NewServeMux()
+	site.Mount(mux, "")
+
+	log.Printf("gobackup-agent web UI listening on %s", *addr)
+	if err := http.ListenAndServe(*addr, mux); err != nil {
+		fatal(err.Error())
+	}
+}
+
+func cmdCreateUser(args []string) {
+	fs := flag.NewFlagSet("create-user", flag.ExitOnError)
+	connString := fs.String("db", "", "agent's local Postgres connection string")
+	email := fs.String("email", "", "login email")
+	password := fs.String("password", "", "login password")
+	fs.Parse(args)
+
+	if *connString == "" || *email == "" || *password == "" {
+		fatal("missing required flags: -db -email -password")
+	}
+
+	hash, err := webauth.HashPassword(*password)
+	if err != nil {
+		fatal(err.Error())
+	}
+
+	ctx := context.Background()
+	store, err := db.Connect(ctx, *connString)
+	if err != nil {
+		fatal(err.Error())
+	}
+	defer store.Close()
+
+	hostname, _ := os.Hostname()
+	tenantID, _, err := store.EnsureDefaultTenantAndAgent(ctx, hostname)
+	if err != nil {
+		fatal(err.Error())
+	}
+
+	if _, err := store.CreateUser(ctx, tenantID, *email, hash, core.RoleAdmin); err != nil {
+		fatal(err.Error())
+	}
+	fmt.Printf("user %s created/updated\n", *email)
 }

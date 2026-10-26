@@ -16,7 +16,9 @@ import (
 	"time"
 
 	"github.com/cleber/gobackup/internal/api"
+	"github.com/cleber/gobackup/internal/core"
 	"github.com/cleber/gobackup/internal/db"
+	"github.com/cleber/gobackup/internal/webauth"
 )
 
 func main() {
@@ -30,6 +32,8 @@ func main() {
 		cmdMigrate(os.Args[2:])
 	case "serve":
 		cmdServe(os.Args[2:])
+	case "create-user":
+		cmdCreateUser(os.Args[2:])
 	default:
 		usage()
 		os.Exit(1)
@@ -109,4 +113,38 @@ func runOfflineChecker(ctx context.Context, store *db.Store, srv *api.Server) {
 func fatal(msg string) {
 	fmt.Fprintln(os.Stderr, "error:", msg)
 	os.Exit(1)
+}
+
+func cmdCreateUser(args []string) {
+	fs := flag.NewFlagSet("create-user", flag.ExitOnError)
+	connString := fs.String("db", "", "Postgres connection string")
+	email := fs.String("email", "", "login email")
+	password := fs.String("password", "", "login password")
+	fs.Parse(args)
+
+	if *connString == "" || *email == "" || *password == "" {
+		fatal("missing required flags: -db -email -password")
+	}
+
+	hash, err := webauth.HashPassword(*password)
+	if err != nil {
+		fatal(err.Error())
+	}
+
+	ctx := context.Background()
+	store, err := db.Connect(ctx, *connString)
+	if err != nil {
+		fatal(err.Error())
+	}
+	defer store.Close()
+
+	tenantID, err := store.EnsureDefaultTenant(ctx)
+	if err != nil {
+		fatal(err.Error())
+	}
+
+	if _, err := store.CreateUser(ctx, tenantID, *email, hash, core.RoleAdmin); err != nil {
+		fatal(err.Error())
+	}
+	fmt.Printf("user %s created/updated\n", *email)
 }
