@@ -301,6 +301,17 @@ func (r *CentralRunner) ListJobs(ctx context.Context) ([]JobSummary, error) {
 	return out, nil
 }
 
+func (r *CentralRunner) DeleteJob(ctx context.Context, jobID string) error {
+	outcome, err := r.enqueueAndWait(ctx, "delete_job", map[string]any{"job_id": jobID})
+	if err != nil {
+		return err
+	}
+	if outcome.Status != "success" {
+		return fmt.Errorf("%s", outcome.Message)
+	}
+	return nil
+}
+
 // RunJob fires the run_job command and returns immediately — it does NOT
 // wait for completion. Progress is reported via JobStatus, refreshed by the
 // agent's next heartbeat(s), same mechanism as the jobs list.

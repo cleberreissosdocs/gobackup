@@ -448,13 +448,19 @@ button.secondary:hover { background:#a83a3a; }
   <td>{{.Name}}{{if not .Enabled}} <small>(desabilitada)</small>{{end}}</td>
   <td>{{if eq .Kind "files"}}Arquivos{{else}}Banco de dados{{end}}</td>
   <td>{{if .Cron}}{{.Cron}}{{else}}<small>manual</small>{{end}}</td>
-  <td>
+  <td style="white-space:nowrap;">
     <a href="/agents/{{.AgentID}}/jobs/{{.JobID}}/edit">Editar</a>
     <form method="post" action="/agents/{{.AgentID}}/jobs/{{.JobID}}/run" style="display:inline-flex; gap:0.5rem; align-items:center; margin-left:0.8rem">
       <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
       {{if eq .Kind "database"}}<input type="password" name="password" placeholder="senha (se necessário)">{{end}}
       <button type="submit">Executar</button>
     </form>
+    <span style="display:inline-block; width:1.5rem;"></span><span style="border-left:1px solid #444; padding-left:1rem;">
+    <form method="post" action="/agents/{{.AgentID}}/jobs/{{.JobID}}/delete" style="display:inline" onsubmit="return confirm('Apagar a tarefa \'{{.Name}}\' do agente \'{{.AgentName}}\'? Isso remove a definição e o histórico de execuções (os arquivos já copiados NÃO são apagados).');">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      <button type="submit" class="secondary">Apagar</button>
+    </form>
+    </span>
   </td>
 </tr>
 {{else}}

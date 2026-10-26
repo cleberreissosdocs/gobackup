@@ -48,6 +48,8 @@ func (e *Executor) Execute(ctx context.Context, cmd QueuedCommand) CommandResult
 		result, err = e.listJobs(ctx)
 	case "run_job":
 		result, err = e.runJob(ctx, cmd.Payload)
+	case "delete_job":
+		result, err = e.deleteJob(ctx, cmd.Payload)
 	default:
 		err = fmt.Errorf("unsupported command type: %s", cmd.Type)
 	}
@@ -163,6 +165,20 @@ func (e *Executor) createJob(ctx context.Context, payload map[string]any) (map[s
 	default:
 		return nil, fmt.Errorf("unsupported job kind: %s", kind)
 	}
+}
+
+// deleteJob removes a job definition (and its execution history, via FK
+// cascade). Does not touch files already written to past destinations.
+func (e *Executor) deleteJob(ctx context.Context, payload map[string]any) (map[string]any, error) {
+	jobIDStr, _ := payload["job_id"].(string)
+	jobID, err := uuid.Parse(jobIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("job_id inválido")
+	}
+	if err := e.Store.DeleteJob(ctx, jobID); err != nil {
+		return nil, err
+	}
+	return map[string]any{"deleted": true}, nil
 }
 
 // getJob returns a persisted job's full definition (minus any password),

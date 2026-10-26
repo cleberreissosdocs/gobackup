@@ -215,6 +215,20 @@ func (s *Store) ListJobs(ctx context.Context, agentID uuid.UUID) ([]JobSummary, 
 	return out, nil
 }
 
+// DeleteJob removes a job definition. Cascades (via FK) to its execution
+// history. It does NOT touch files already written to the destination by
+// past runs — only the job's definition and its run log are removed.
+func (s *Store) DeleteJob(ctx context.Context, jobID uuid.UUID) error {
+	tag, err := s.Pool.Exec(ctx, `DELETE FROM backup_jobs WHERE id=$1`, jobID)
+	if err != nil {
+		return fmt.Errorf("delete job: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("delete job: not found")
+	}
+	return nil
+}
+
 // SchedulableJob is one row the background scheduler evaluates every tick.
 type SchedulableJob struct {
 	ID   uuid.UUID

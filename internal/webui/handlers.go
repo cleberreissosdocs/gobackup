@@ -40,6 +40,7 @@ func (s *Site) Mount(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("GET "+prefix+"/jobs/{jobID}/edit", s.Auth.RequireLogin(s.handleEditJobForm))
 	mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/update", s.Auth.RequireLoginAndCSRF(s.handleUpdateJob))
 	mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/run", s.Auth.RequireLoginAndCSRF(s.handleRunJob))
+	mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/delete", s.Auth.RequireLoginAndCSRF(s.handleDeleteJob))
 	mux.HandleFunc("GET "+prefix+"/jobs/{jobID}/status", s.Auth.RequireLogin(s.handleJobStatus))
 }
 
@@ -332,6 +333,25 @@ func (s *Site) handleRunJob(w http.ResponseWriter, r *http.Request) {
 	s.renderPage(w, r, "Executando — "+name, progressTmpl, map[string]any{
 		"Name": name, "Base": s.base(r), "JobID": jobID,
 	})
+}
+
+// handleDeleteJob permanently removes a job definition (and its execution
+// history) — the "Apagar" button next to each row in the "Tarefas" list.
+// Does not touch files already written to past destinations.
+func (s *Site) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	runner, _, err := s.GetRunner(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	jobID := r.PathValue("jobID")
+	if err := runner.DeleteJob(ctx, jobID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, s.base(r)+"/", http.StatusSeeOther)
 }
 
 // progressStatusResponse is what /jobs/{id}/status returns for the

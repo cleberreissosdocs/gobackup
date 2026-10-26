@@ -111,6 +111,10 @@ type Runner interface {
 
 	ListJobs(ctx context.Context) ([]JobSummary, error)
 
+	// DeleteJob removes a job definition entirely (and its execution
+	// history). Does not touch files already written by past runs.
+	DeleteJob(ctx context.Context, jobID string) error
+
 	// RunJob STARTS an already-created job asynchronously and returns
 	// immediately — poll JobStatus for live progress. password is only
 	// used for job kind "database" when the engine requires authentication.

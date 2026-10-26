@@ -165,6 +165,14 @@ func (r *LocalRunner) ListJobs(ctx context.Context) ([]JobSummary, error) {
 	return out, nil
 }
 
+func (r *LocalRunner) DeleteJob(ctx context.Context, jobIDStr string) error {
+	jobID, err := uuid.Parse(jobIDStr)
+	if err != nil {
+		return fmt.Errorf("job id inválido")
+	}
+	return r.Store.DeleteJob(ctx, jobID)
+}
+
 func (r *LocalRunner) RunJob(ctx context.Context, jobID, password string) (JobOutcome, error) {
 	if _, err := r.Engine.Start(ctx, jobID, core.TriggerManual, password); err != nil {
 		return JobOutcome{Status: "failed", Message: err.Error()}, nil
