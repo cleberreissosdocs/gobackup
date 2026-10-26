@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: gobackup-postgres-dev
+    environment:
+      POSTGRES_USER: gobackup
+      POSTGRES_PASSWORD: gobackup
+      POSTGRES_DB: gobackup
+    ports:
+      - "55432:5432"
+    volumes:
+      - gobackup_pg_data:/var/lib/postgresql/data
+
+volumes:
+  gobackup_pg_data:
