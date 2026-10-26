@@ -404,6 +404,52 @@ func (s *Store) ListAllAgentJobs(ctx context.Context) ([]AllAgentsJobRow, error)
 	return out, rows.Err()
 }
 
+// RemoteExecutionStatus is one running/just-finished execution reported by
+// an agent's heartbeat (piggybacked, same mechanism as the jobs list).
+type RemoteExecutionStatus struct {
+	JobID   string
+	Status  string
+	Percent int
+	Message string
+}
+
+// ReplaceAgentExecutionStatus overwrites the cached execution-status rows
+// for one agent — called on every heartbeat.
+func (s *Store) ReplaceAgentExecutionStatus(ctx context.Context, agentID uuid.UUID, rows []RemoteExecutionStatus) error {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("replace agent execution status: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `DELETE FROM agent_execution_status WHERE agent_id=$1`, agentID); err != nil {
+		return fmt.Errorf("replace agent execution status: clear: %w", err)
+	}
+	for _, row := range rows {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO agent_execution_status (agent_id, job_id, status, percent, message) VALUES ($1, $2, $3, $4, $5)
+		`, agentID, row.JobID, row.Status, row.Percent, row.Message); err != nil {
+			return fmt.Errorf("replace agent execution status: insert: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("replace agent execution status: commit: %w", err)
+	}
+	return nil
+}
+
+// GetAgentJobStatus looks up the cached execution status for one job on
+// one agent, for the "Executar" progress bar to poll.
+func (s *Store) GetAgentJobStatus(ctx context.Context, agentID uuid.UUID, jobID string) (status string, percent int, message string, found bool, err error) {
+	err = s.Pool.QueryRow(ctx, `
+		SELECT status, percent, message FROM agent_execution_status WHERE agent_id=$1 AND job_id=$2
+	`, agentID, jobID).Scan(&status, &percent, &message)
+	if err != nil {
+		return "", 0, "", false, nil
+	}
+	return status, percent, message, true, nil
+}
+
 func hashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])

@@ -23,7 +23,10 @@ import (
 	"github.com/cleber/gobackup/internal/core"
 	"github.com/cleber/gobackup/internal/db"
 	"github.com/cleber/gobackup/internal/dbjob"
+	"github.com/cleber/gobackup/internal/jobexec"
 	"github.com/cleber/gobackup/internal/poller"
+	"github.com/cleber/gobackup/internal/progress"
+	"github.com/cleber/gobackup/internal/scheduler"
 	"github.com/cleber/gobackup/internal/tlsutil"
 	"github.com/cleber/gobackup/internal/webauth"
 	"github.com/cleber/gobackup/internal/webui"
@@ -132,7 +135,7 @@ func cmdRun(args []string) {
 	if err != nil {
 		fatal(err.Error())
 	}
-	res, runErr := backup.Run(ctx, *source, destination, bt, *linkDest)
+	res, runErr := backup.Run(ctx, *source, destination, bt, *linkDest, nil)
 	elapsed := time.Since(start)
 
 	if runErr != nil {
@@ -223,7 +226,8 @@ func cmdHeartbeat(args []string) {
 	if err != nil {
 		fatal(err.Error())
 	}
-	exec := &poller.Executor{Store: store, TenantID: tenantID, AgentID: agentID}
+	progressRegistry := progress.NewRegistry()
+	exec := &poller.Executor{Store: store, TenantID: tenantID, AgentID: agentID, Engine: &jobexec.Engine{Store: store, Registry: progressRegistry}, Registry: progressRegistry}
 
 	var pendingResults []poller.CommandResult
 
@@ -231,10 +235,14 @@ func cmdHeartbeat(args []string) {
 		jobs, _ := store.ListJobs(ctx, agentID)
 		jobInfos := make([]poller.JobInfo, 0, len(jobs))
 		for _, j := range jobs {
-			jobInfos = append(jobInfos, poller.JobInfo{ID: j.ID.String(), Name: j.Name, Kind: j.Kind})
+			jobInfos = append(jobInfos, poller.JobInfo{ID: j.ID.String(), Name: j.Name, Kind: j.Kind, Cron: j.Cron, Enabled: j.Enabled})
+		}
+		running := make([]poller.RunningInfo, 0)
+		for jobID, s := range progressRegistry.Snapshot() {
+			running = append(running, poller.RunningInfo{JobID: jobID, Status: s.Status, Percent: s.Percent, Message: s.Message})
 		}
 
-		resp, err := client.Poll("idle", pendingResults, jobInfos)
+		resp, err := client.Poll("idle", pendingResults, jobInfos, running)
 		if err != nil {
 			log.Println("heartbeat error:", err)
 			return
@@ -429,10 +437,16 @@ func cmdServe(args []string) {
 	// Heartbeat runs inside this same process now: its settings (Central
 	// URL/CA/token) live in the local DB and can be changed any time from
 	// the /settings page, taking effect on the very next tick.
-	heart := &poller.Runner{Store: store, TenantID: tenantID, AgentID: agentID}
+	progressRegistry := progress.NewRegistry()
+	engine := &jobexec.Engine{Store: store, Registry: progressRegistry}
+	heart := &poller.Runner{Store: store, TenantID: tenantID, AgentID: agentID, Engine: engine, Registry: progressRegistry}
 	go heart.Run(ctx, *heartbeatInterval)
 
-	runner := &webui.LocalRunner{Store: store, TenantID: tenantID, AgentID: agentID}
+	// Background scheduler: fires jobs whose schedule_cron is due, checked
+	// every 20s (fine-grained enough vs. the minute-level cron precision).
+	go scheduler.Run(ctx, store, engine, agentID, 20*time.Second)
+
+	runner := &webui.LocalRunner{Store: store, TenantID: tenantID, AgentID: agentID, Engine: engine, Registry: progressRegistry}
 	auth := webauth.NewManager(store)
 	site := &webui.Site{
 		Auth: auth,

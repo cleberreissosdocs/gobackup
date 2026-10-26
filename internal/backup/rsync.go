@@ -97,6 +97,11 @@ type Result struct {
 //	Total transferred file size: 1,048,576 bytes
 var numberTransferredRe = regexp.MustCompile(`Number of (?:regular )?files transferred:\s*([\d,]+)`)
 var totalBytesRe = regexp.MustCompile(`Total transferred file size:\s*([\d,]+)\s*bytes`)
+var percentRe = regexp.MustCompile(`(\d+)%`)
+
+// ProgressFunc is called for each progress line rsync prints (thanks to
+// --info=progress2). percent is -1 when the line carries no percentage.
+type ProgressFunc func(percent int, line string)
 
 // Run executes an rsync file-tree backup from sourcePath to dest.
 //
@@ -111,8 +116,8 @@ var totalBytesRe = regexp.MustCompile(`Total transferred file size:\s*([\d,]+)\s
 //
 // linkDestPath may be empty for a full backup. Note: for an ssh destination,
 // --link-dest is resolved on the REMOTE host, so it must be a path on that
-// host, not on the agent running rsync.
-func Run(ctx context.Context, sourcePath string, dest Destination, backupType core.BackupType, linkDestPath string) (Result, error) {
+// host, not on the agent running rsync. onProgress may be nil.
+func Run(ctx context.Context, sourcePath string, dest Destination, backupType core.BackupType, linkDestPath string, onProgress ProgressFunc) (Result, error) {
 	target, extraArgs, err := dest.rsyncArgs()
 	if err != nil {
 		return Result{}, fmt.Errorf("invalid destination: %w", err)
@@ -148,6 +153,15 @@ func Run(ctx context.Context, sourcePath string, dest Destination, backupType co
 		line := scanner.Text()
 		out.WriteString(line)
 		out.WriteByte('\n')
+		if onProgress != nil {
+			pct := -1
+			if m := percentRe.FindStringSubmatch(line); len(m) == 2 {
+				if n, err := strconv.Atoi(m[1]); err == nil {
+					pct = n
+				}
+			}
+			onProgress(pct, line)
+		}
 	}
 
 	if err := cmd.Wait(); err != nil {

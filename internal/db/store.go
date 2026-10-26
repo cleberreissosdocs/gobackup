@@ -179,13 +179,15 @@ type JobSummary struct {
 	ID        uuid.UUID
 	Name      string
 	Kind      string // files|database
+	Cron      string
+	Enabled   bool
 	CreatedAt time.Time
 }
 
 // ListJobs returns every backup job defined for an agent, newest first.
 func (s *Store) ListJobs(ctx context.Context, agentID uuid.UUID) ([]JobSummary, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT id, name, job_kind, created_at FROM backup_jobs WHERE agent_id=$1 ORDER BY created_at DESC
+		SELECT id, name, job_kind, schedule_cron, enabled, created_at FROM backup_jobs WHERE agent_id=$1 ORDER BY created_at DESC
 	`, agentID)
 	if err != nil {
 		return nil, fmt.Errorf("list jobs: %w", err)
@@ -194,12 +196,41 @@ func (s *Store) ListJobs(ctx context.Context, agentID uuid.UUID) ([]JobSummary, 
 	var out []JobSummary
 	for rows.Next() {
 		var j JobSummary
-		if err := rows.Scan(&j.ID, &j.Name, &j.Kind, &j.CreatedAt); err != nil {
+		if err := rows.Scan(&j.ID, &j.Name, &j.Kind, &j.Cron, &j.Enabled, &j.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, j)
 	}
 	return out, nil
+}
+
+// SchedulableJob is one row the background scheduler evaluates every tick.
+type SchedulableJob struct {
+	ID   uuid.UUID
+	Kind string
+	Cron string
+}
+
+// ListSchedulableJobs returns every enabled job with a non-empty cron
+// expression for an agent, for the scheduler loop to evaluate.
+func (s *Store) ListSchedulableJobs(ctx context.Context, agentID uuid.UUID) ([]SchedulableJob, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT id, job_kind, schedule_cron FROM backup_jobs
+		WHERE agent_id=$1 AND enabled=true AND schedule_cron IS NOT NULL AND schedule_cron <> ''
+	`, agentID)
+	if err != nil {
+		return nil, fmt.Errorf("list schedulable jobs: %w", err)
+	}
+	defer rows.Close()
+	var out []SchedulableJob
+	for rows.Next() {
+		var j SchedulableJob
+		if err := rows.Scan(&j.ID, &j.Kind, &j.Cron); err != nil {
+			return nil, err
+		}
+		out = append(out, j)
+	}
+	return out, rows.Err()
 }
 
 // GetJobKind returns whether a job is "files" or "database", so the caller
@@ -213,7 +244,7 @@ func (s *Store) GetJobKind(ctx context.Context, jobID uuid.UUID) (string, error)
 	return kind, nil
 }
 
-// FileJobDetails is everything needed to re-run a persisted file job.
+// FileJobDetails is everything needed to re-run or edit a persisted file job.
 type FileJobDetails struct {
 	Name       string
 	Source     string
@@ -225,6 +256,8 @@ type FileJobDetails struct {
 	SSHPort    int
 	SSHUser    string
 	SSHKey     string
+	Cron       string
+	Enabled    bool
 }
 
 func (s *Store) GetFileJobDetails(ctx context.Context, jobID uuid.UUID) (FileJobDetails, error) {
@@ -232,9 +265,9 @@ func (s *Store) GetFileJobDetails(ctx context.Context, jobID uuid.UUID) (FileJob
 	var linkDest, destType, sshHost, sshUser, sshKey *string
 	var sshPort *int
 	err := s.Pool.QueryRow(ctx, `
-		SELECT name, source_path, dest_path, backup_type, link_dest, dest_type, ssh_host, ssh_port, ssh_user, ssh_key_path
+		SELECT name, source_path, dest_path, backup_type, link_dest, dest_type, ssh_host, ssh_port, ssh_user, ssh_key_path, schedule_cron, enabled
 		FROM backup_jobs WHERE id=$1 AND job_kind='files'
-	`, jobID).Scan(&d.Name, &d.Source, &d.Dest, &d.BackupType, &linkDest, &destType, &sshHost, &sshPort, &sshUser, &sshKey)
+	`, jobID).Scan(&d.Name, &d.Source, &d.Dest, &d.BackupType, &linkDest, &destType, &sshHost, &sshPort, &sshUser, &sshKey, &d.Cron, &d.Enabled)
 	if err != nil {
 		return d, fmt.Errorf("get file job details: %w", err)
 	}
@@ -259,9 +292,10 @@ func (s *Store) GetFileJobDetails(ctx context.Context, jobID uuid.UUID) (FileJob
 	return d, nil
 }
 
-// DBJobDetails is everything needed to re-run a persisted database job,
-// EXCEPT the password — that is never persisted, and must be supplied again
-// at run time (unless the engine is sqlite/trust-auth, which needs none).
+// DBJobDetails is everything needed to re-run or edit a persisted database
+// job, EXCEPT the password — that is never persisted, and must be supplied
+// again at run time (unless the engine is sqlite/trust-auth, which needs
+// none).
 type DBJobDetails struct {
 	Name        string
 	Engine      string
@@ -277,6 +311,8 @@ type DBJobDetails struct {
 	SSHPort     int
 	SSHUser     string
 	SSHKey      string
+	Cron        string
+	Enabled     bool
 }
 
 func (s *Store) GetDBJobDetails(ctx context.Context, jobID uuid.UUID) (DBJobDetails, error) {
@@ -285,12 +321,13 @@ func (s *Store) GetDBJobDetails(ctx context.Context, jobID uuid.UUID) (DBJobDeta
 	var sshPort *int
 	err := s.Pool.QueryRow(ctx, `
 		SELECT bj.name, dc.engine, dc.host, dc.port, dc.username, dc.database_name, dc.sqlite_path,
-		       bj.compression, bj.dest_path, bj.dest_type, bj.ssh_host, bj.ssh_port, bj.ssh_user, bj.ssh_key_path
+		       bj.compression, bj.dest_path, bj.dest_type, bj.ssh_host, bj.ssh_port, bj.ssh_user, bj.ssh_key_path,
+		       bj.schedule_cron, bj.enabled
 		FROM backup_jobs bj
 		JOIN db_connections dc ON dc.id = bj.db_connection_id
 		WHERE bj.id=$1 AND bj.job_kind='database'
 	`, jobID).Scan(&d.Name, &d.Engine, &d.Host, &d.Port, &d.Username, &d.Database, &d.SQLitePath,
-		&d.Compression, &d.DestPath, &destType, &sshHost, &sshPort, &sshUser, &sshKey)
+		&d.Compression, &d.DestPath, &destType, &sshHost, &sshPort, &sshUser, &sshKey, &d.Cron, &d.Enabled)
 	if err != nil {
 		return d, fmt.Errorf("get db job details: %w", err)
 	}
@@ -335,6 +372,68 @@ func (s *Store) FinishExecution(ctx context.Context, execID uuid.UUID, status co
 	`, string(status), bytesTransferred, filesTransferred, errMsg, execID)
 	if err != nil {
 		return fmt.Errorf("finish execution: %w", err)
+	}
+	return nil
+}
+
+// LatestExecution is the most recent execution of a job — used by the
+// progress-polling endpoint to show a final result after the in-memory
+// progress registry entry has expired (e.g. after a page reload).
+type LatestExecution struct {
+	Status       string
+	ErrorMessage string
+	Found        bool
+}
+
+func (s *Store) GetLatestExecution(ctx context.Context, jobID uuid.UUID) (LatestExecution, error) {
+	var le LatestExecution
+	err := s.Pool.QueryRow(ctx, `
+		SELECT status, COALESCE(error_message, '')
+		FROM job_executions WHERE job_id=$1 ORDER BY started_at DESC NULLS LAST LIMIT 1
+	`, jobID).Scan(&le.Status, &le.ErrorMessage)
+	if err != nil {
+		return LatestExecution{}, nil // no executions yet — not an error
+	}
+	le.Found = true
+	return le, nil
+}
+
+// UpdateFileJobByID overwrites an existing file job's definition in place
+// (used by the "Editar" form — unlike CreateFileJob, this never inserts).
+func (s *Store) UpdateFileJobByID(ctx context.Context, jobID uuid.UUID, name, sourcePath, destPath string, backupType core.BackupType, destType, linkDest, sshHost string, sshPort int, sshUser, sshKeyPath, cron string, enabled bool) error {
+	_, err := s.Pool.Exec(ctx, `
+		UPDATE backup_jobs
+		SET name=$1, source_path=$2, dest_path=$3, backup_type=$4, dest_type=$5, link_dest=$6,
+		    ssh_host=$7, ssh_port=$8, ssh_user=$9, ssh_key_path=$10, schedule_cron=$11, enabled=$12, updated_at=now()
+		WHERE id=$13 AND job_kind='files'
+	`, name, sourcePath, destPath, string(backupType), destType, linkDest, sshHost, sshPort, sshUser, sshKeyPath, cron, enabled, jobID)
+	if err != nil {
+		return fmt.Errorf("update file job: %w", err)
+	}
+	return nil
+}
+
+// UpdateDatabaseJobByID overwrites an existing database job's definition
+// (and its underlying db_connections row) in place.
+func (s *Store) UpdateDatabaseJobByID(ctx context.Context, jobID uuid.UUID, name string, engine core.DBEngine, host string, port int, username, databaseName, sqlitePath string, compression core.Compression, destPath, destType, sshHost string, sshPort int, sshUser, sshKeyPath, cron string, enabled bool) error {
+	var connID uuid.UUID
+	err := s.Pool.QueryRow(ctx, `SELECT db_connection_id FROM backup_jobs WHERE id=$1 AND job_kind='database'`, jobID).Scan(&connID)
+	if err != nil {
+		return fmt.Errorf("update database job: lookup connection: %w", err)
+	}
+	if _, err := s.Pool.Exec(ctx, `
+		UPDATE db_connections SET name=$1, engine=$2, host=$3, port=$4, username=$5, database_name=$6, sqlite_path=$7
+		WHERE id=$8
+	`, name+"-connection", string(engine), host, port, username, databaseName, sqlitePath, connID); err != nil {
+		return fmt.Errorf("update database job: connection: %w", err)
+	}
+	if _, err := s.Pool.Exec(ctx, `
+		UPDATE backup_jobs
+		SET name=$1, compression=$2, dest_path=$3, dest_type=$4, ssh_host=$5, ssh_port=$6, ssh_user=$7, ssh_key_path=$8,
+		    schedule_cron=$9, enabled=$10, updated_at=now()
+		WHERE id=$11 AND job_kind='database'
+	`, name, string(compression), destPath, destType, sshHost, sshPort, sshUser, sshKeyPath, cron, enabled, jobID); err != nil {
+		return fmt.Errorf("update database job: %w", err)
 	}
 	return nil
 }

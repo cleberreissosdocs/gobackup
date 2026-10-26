@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/cleber/gobackup/internal/db"
+	"github.com/cleber/gobackup/internal/jobexec"
+	"github.com/cleber/gobackup/internal/progress"
 )
 
 // Runner drives the heartbeat/poll loop using settings that can change at
@@ -19,6 +21,8 @@ type Runner struct {
 	Store    *db.Store
 	TenantID uuid.UUID
 	AgentID  uuid.UUID
+	Engine   *jobexec.Engine    // shared with the local web UI and the scheduler
+	Registry *progress.Registry // shared with the local web UI's status endpoint
 
 	mu            sync.Mutex
 	cachedKey     string
@@ -72,9 +76,12 @@ func (r *Runner) Status(ctx context.Context) Status {
 }
 
 // Run loops forever (until ctx is cancelled), sending a heartbeat every
-// interval. Call it in a goroutine from `gobackup-agent serve`.
+// interval. Call it in a goroutine from `gobackup-agent serve`. Commands
+// from the Central (including run_job) are handled by Executor, which
+// dispatches long-running work to jobexec.Engine so a single heartbeat
+// tick never blocks on a multi-minute backup.
 func (r *Runner) Run(ctx context.Context, interval time.Duration) {
-	exec := &Executor{Store: r.Store, TenantID: r.TenantID, AgentID: r.AgentID}
+	exec := &Executor{Store: r.Store, TenantID: r.TenantID, AgentID: r.AgentID, Engine: r.Engine, Registry: r.Registry}
 	var pendingResults []CommandResult
 
 	ticker := time.NewTicker(interval)
@@ -86,10 +93,15 @@ func (r *Runner) Run(ctx context.Context, interval time.Duration) {
 			jobs, _ := r.Store.ListJobs(ctx, r.AgentID)
 			jobInfos := make([]JobInfo, 0, len(jobs))
 			for _, j := range jobs {
-				jobInfos = append(jobInfos, JobInfo{ID: j.ID.String(), Name: j.Name, Kind: j.Kind})
+				jobInfos = append(jobInfos, JobInfo{ID: j.ID.String(), Name: j.Name, Kind: j.Kind, Cron: j.Cron, Enabled: j.Enabled})
 			}
 
-			resp, err := client.Poll("idle", pendingResults, jobInfos)
+			running := make([]RunningInfo, 0)
+			for jobID, s := range r.Registry.Snapshot() {
+				running = append(running, RunningInfo{JobID: jobID, Status: s.Status, Percent: s.Percent, Message: s.Message})
+			}
+
+			resp, err := client.Poll("idle", pendingResults, jobInfos, running)
 			r.mu.Lock()
 			r.lastBeatAt = time.Now()
 			if err != nil {

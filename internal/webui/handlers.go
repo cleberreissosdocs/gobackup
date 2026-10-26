@@ -37,7 +37,10 @@ func (s *Site) Mount(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("GET "+prefix+"/browse.json", s.Auth.RequireLogin(s.handleBrowseJSON))
 	mux.HandleFunc("POST "+prefix+"/jobs/file", s.Auth.RequireLoginAndCSRF(s.handleCreateFileJob))
 	mux.HandleFunc("POST "+prefix+"/jobs/db", s.Auth.RequireLoginAndCSRF(s.handleCreateDBJob))
+	mux.HandleFunc("GET "+prefix+"/jobs/{jobID}/edit", s.Auth.RequireLogin(s.handleEditJobForm))
+	mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/update", s.Auth.RequireLoginAndCSRF(s.handleUpdateJob))
 	mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/run", s.Auth.RequireLoginAndCSRF(s.handleRunJob))
+	mux.HandleFunc("GET "+prefix+"/jobs/{jobID}/status", s.Auth.RequireLogin(s.handleJobStatus))
 }
 
 func (s *Site) handleLoginForm(w http.ResponseWriter, r *http.Request) {
@@ -139,6 +142,50 @@ func (s *Site) handleBrowseJSON(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+func fileJobFromForm(r *http.Request) FileJobRequest {
+	req := FileJobRequest{
+		Name:       r.FormValue("name"),
+		Source:     r.FormValue("source"),
+		Dest:       r.FormValue("dest"),
+		BackupType: r.FormValue("backup_type"),
+		LinkDest:   r.FormValue("link_dest"),
+		DestType:   r.FormValue("dest_type"),
+		SSHHost:    r.FormValue("ssh_host"),
+		SSHUser:    r.FormValue("ssh_user"),
+		SSHKey:     r.FormValue("ssh_key"),
+		Cron:       r.FormValue("cron"),
+		Enabled:    r.FormValue("enabled") == "on",
+	}
+	req.SSHPort, _ = strconv.Atoi(r.FormValue("ssh_port"))
+	return req
+}
+
+func dbJobFromForm(r *http.Request) DBJobRequest {
+	req := DBJobRequest{
+		Name:        r.FormValue("name"),
+		Engine:      r.FormValue("engine"),
+		Host:        r.FormValue("host"),
+		Username:    r.FormValue("username"),
+		Password:    r.FormValue("password"),
+		Database:    r.FormValue("database"),
+		SQLitePath:  r.FormValue("sqlite_path"),
+		Compression: r.FormValue("compression"),
+		DestPath:    r.FormValue("dest_path"),
+		DestType:    r.FormValue("dest_type"),
+		SSHHost:     r.FormValue("ssh_host"),
+		SSHUser:     r.FormValue("ssh_user"),
+		SSHKey:      r.FormValue("ssh_key"),
+		Cron:        r.FormValue("cron"),
+		Enabled:     r.FormValue("enabled") == "on",
+	}
+	req.Port, _ = strconv.Atoi(r.FormValue("port"))
+	req.SSHPort, _ = strconv.Atoi(r.FormValue("ssh_port"))
+	if r.FormValue("all_databases") == "on" {
+		req.Database = "__ALL__"
+	}
+	return req
+}
+
 // handleCreateFileJob only PERSISTS the job definition — it does not run
 // it. Use the "Executar" button on the saved job (handleRunJob) for that.
 func (s *Site) handleCreateFileJob(w http.ResponseWriter, r *http.Request) {
@@ -150,18 +197,8 @@ func (s *Site) handleCreateFileJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.ParseForm()
-	req := FileJobRequest{
-		Name:       r.FormValue("name"),
-		Source:     r.FormValue("source"),
-		Dest:       r.FormValue("dest"),
-		BackupType: r.FormValue("backup_type"),
-		LinkDest:   r.FormValue("link_dest"),
-		DestType:   r.FormValue("dest_type"),
-		SSHHost:    r.FormValue("ssh_host"),
-		SSHUser:    r.FormValue("ssh_user"),
-		SSHKey:     r.FormValue("ssh_key"),
-	}
-	req.SSHPort, _ = strconv.Atoi(r.FormValue("ssh_port"))
+	req := fileJobFromForm(r)
+	req.Enabled = true // new jobs default to enabled (the checkbox only appears on Edit)
 
 	var outcome JobOutcome
 	if _, err := runner.CreateFileJob(ctx, req); err != nil {
@@ -186,26 +223,8 @@ func (s *Site) handleCreateDBJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.ParseForm()
-	req := DBJobRequest{
-		Name:        r.FormValue("name"),
-		Engine:      r.FormValue("engine"),
-		Host:        r.FormValue("host"),
-		Username:    r.FormValue("username"),
-		Password:    r.FormValue("password"),
-		Database:    r.FormValue("database"),
-		SQLitePath:  r.FormValue("sqlite_path"),
-		Compression: r.FormValue("compression"),
-		DestPath:    r.FormValue("dest_path"),
-		DestType:    r.FormValue("dest_type"),
-		SSHHost:     r.FormValue("ssh_host"),
-		SSHUser:     r.FormValue("ssh_user"),
-		SSHKey:      r.FormValue("ssh_key"),
-	}
-	req.Port, _ = strconv.Atoi(r.FormValue("port"))
-	req.SSHPort, _ = strconv.Atoi(r.FormValue("ssh_port"))
-	if r.FormValue("all_databases") == "on" {
-		req.Database = "__ALL__"
-	}
+	req := dbJobFromForm(r)
+	req.Enabled = true
 
 	var outcome JobOutcome
 	if _, err := runner.CreateDBJob(ctx, req); err != nil {
@@ -219,10 +238,76 @@ func (s *Site) handleCreateDBJob(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleRunJob executes an already-created job (the "Executar" button next
-// to each row in the "Tarefas" list on the home page).
+// handleEditJobForm shows the prefilled edit form for an existing job
+// (tries file first, falls back to database — GetFileJob/GetDBJob return an
+// error for the wrong kind).
+func (s *Site) handleEditJobForm(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	runner, name, err := s.GetRunner(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	jobID := r.PathValue("jobID")
+
+	if fileReq, ferr := runner.GetFileJob(ctx, jobID); ferr == nil {
+		s.renderPage(w, r, "Editar tarefa — "+name, editFileTmpl, map[string]any{
+			"Name": name, "Base": s.base(r), "JobID": jobID, "Job": fileReq, "CSRF": s.Auth.CSRFToken(r),
+		})
+		return
+	}
+	if dbReq, derr := runner.GetDBJob(ctx, jobID); derr == nil {
+		s.renderPage(w, r, "Editar tarefa — "+name, editDBTmpl, map[string]any{
+			"Name": name, "Base": s.base(r), "JobID": jobID, "Job": dbReq, "CSRF": s.Auth.CSRFToken(r),
+		})
+		return
+	}
+	http.Error(w, "tarefa não encontrada", http.StatusNotFound)
+}
+
+// handleUpdateJob saves an edited job — tries file first, then database.
+func (s *Site) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	runner, name, err := s.GetRunner(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	jobID := r.PathValue("jobID")
+	r.ParseForm()
+	kind := r.FormValue("kind")
+
+	var outcome JobOutcome
+	switch kind {
+	case "files":
+		req := fileJobFromForm(r)
+		if err := runner.UpdateFileJob(ctx, jobID, req); err != nil {
+			outcome = JobOutcome{Status: "failed", Message: err.Error()}
+		} else {
+			outcome = JobOutcome{Status: "success", Message: "Tarefa \"" + req.Name + "\" atualizada."}
+		}
+	case "database":
+		req := dbJobFromForm(r)
+		if err := runner.UpdateDBJob(ctx, jobID, req); err != nil {
+			outcome = JobOutcome{Status: "failed", Message: err.Error()}
+		} else {
+			outcome = JobOutcome{Status: "success", Message: "Tarefa \"" + req.Name + "\" atualizada."}
+		}
+	default:
+		outcome = JobOutcome{Status: "failed", Message: "tipo de tarefa desconhecido"}
+	}
+
+	s.renderPage(w, r, "Resultado — "+name, outcomeTmpl, map[string]any{
+		"Name": name, "Base": s.base(r), "Outcome": outcome, "JobName": jobID,
+	})
+}
+
+// handleRunJob STARTS an already-created job and renders a progress page
+// that polls handleJobStatus every ~1s until it finishes — the "Executar"
+// button next to each row in the "Tarefas" list on the home page.
 func (s *Site) handleRunJob(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	runner, name, err := s.GetRunner(r)
 	if err != nil {
@@ -237,10 +322,42 @@ func (s *Site) handleRunJob(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		outcome = JobOutcome{Status: "failed", Message: err.Error()}
 	}
+	if outcome.Status == "failed" {
+		s.renderPage(w, r, "Resultado — "+name, outcomeTmpl, map[string]any{
+			"Name": name, "Base": s.base(r), "Outcome": outcome, "JobName": jobID,
+		})
+		return
+	}
 
-	s.renderPage(w, r, "Resultado — "+name, outcomeTmpl, map[string]any{
-		"Name": name, "Base": s.base(r), "Outcome": outcome, "JobName": jobID,
+	s.renderPage(w, r, "Executando — "+name, progressTmpl, map[string]any{
+		"Name": name, "Base": s.base(r), "JobID": jobID,
 	})
+}
+
+// progressStatusResponse is what /jobs/{id}/status returns for the
+// progress bar's JS poller.
+type progressStatusResponse struct {
+	Status  string `json:"status"`
+	Percent int    `json:"percent"`
+	Message string `json:"message"`
+}
+
+func (s *Site) handleJobStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	runner, _, err := s.GetRunner(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(progressStatusResponse{Status: "failed", Percent: -1, Message: err.Error()})
+		return
+	}
+	jobID := r.PathValue("jobID")
+	info, err := runner.JobStatus(ctx, jobID)
+	if err != nil {
+		info = ProgressInfo{Status: "failed", Percent: -1, Message: err.Error()}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(progressStatusResponse{Status: info.Status, Percent: info.Percent, Message: info.Message})
 }
 
 func (s *Site) base(r *http.Request) string {

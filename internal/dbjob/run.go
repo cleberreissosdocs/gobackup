@@ -81,7 +81,7 @@ func Run(ctx context.Context, req Request) (Result, error) {
 		}
 
 		destination := backup.SSH(req.SSHHost, req.SSHPort, req.SSHUser, req.SSHKey, req.DestPath)
-		transferRes, err := backup.Run(ctx, tmpDir, destination, core.BackupFull, "")
+		transferRes, err := backup.Run(ctx, tmpDir, destination, core.BackupFull, "", nil)
 		if err != nil {
 			return Result{}, fmt.Errorf("push dump over ssh: %w", err)
 		}

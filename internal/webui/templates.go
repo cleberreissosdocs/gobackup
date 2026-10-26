@@ -195,6 +195,9 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
       <button type="button" class="secondary" onclick="gbOpenPicker('file_sshkey','{{.Base}}')">Escolher arquivo…</button>
     </div>
   </div>
+  <div>Agendamento (cron, opcional — ex: "0 3 * * *" = todo dia às 3h; deixe em branco para só rodar manualmente):
+    <input type="text" name="cron" placeholder="minuto hora dia mês dia-da-semana">
+  </div>
   <button type="submit">Criar</button>
 </form>
 </fieldset>
@@ -253,6 +256,9 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
       <button type="button" class="secondary" onclick="gbOpenPicker('db_sshkey','{{.Base}}')">Escolher arquivo…</button>
     </div>
   </div>
+  <div>Agendamento (cron, opcional — lembre-se: se o banco exige senha, um backup agendado vai falhar porque a senha nunca fica salva; agende só se o banco não precisar de autenticação, ou rode manualmente):
+    <input type="text" name="cron" placeholder="minuto hora dia mês dia-da-semana">
+  </div>
   <button type="submit">Criar</button>
 </form>
 </fieldset>
@@ -260,13 +266,15 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
 <fieldset>
 <legend>Tarefas</legend>
 <table>
-<tr><th>Nome</th><th>Tipo</th><th>Ação</th></tr>
+<tr><th>Nome</th><th>Tipo</th><th>Agendamento</th><th>Ação</th></tr>
 {{range .Jobs}}
 <tr>
-  <td>{{.Name}}</td>
+  <td>{{.Name}}{{if not .Enabled}} <small>(desabilitada)</small>{{end}}</td>
   <td>{{if eq .Kind "files"}}Arquivos{{else}}Banco de dados{{end}}</td>
+  <td>{{if .Cron}}{{.Cron}}{{else}}<small>manual</small>{{end}}</td>
   <td>
-    <form method="post" action="{{$.Base}}/jobs/{{.ID}}/run" style="display:inline-flex; gap:0.5rem; align-items:center">
+    <a href="{{$.Base}}/jobs/{{.ID}}/edit">Editar</a>
+    <form method="post" action="{{$.Base}}/jobs/{{.ID}}/run" style="display:inline-flex; gap:0.5rem; align-items:center; margin-left:0.8rem">
       <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
       {{if eq .Kind "database"}}<input type="password" name="password" placeholder="senha (se necessário)">{{end}}
       <button type="submit">Executar</button>
@@ -274,7 +282,7 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
   </td>
 </tr>
 {{else}}
-<tr><td colspan="3">nenhuma tarefa criada ainda</td></tr>
+<tr><td colspan="4">nenhuma tarefa criada ainda</td></tr>
 {{end}}
 </table>
 </fieldset>
@@ -315,4 +323,172 @@ var outcomeTmpl = template.Must(template.New("outcome").Parse(`
 <p class="status-{{.Outcome.Status}}">{{.Outcome.Status}}</p>
 <p>{{.Outcome.Message}}</p>
 <p><a href="{{.Base}}/">&larr; voltar</a></p>
+`))
+
+var editFileTmpl = template.Must(template.New("edit-file").Parse(`
+<h1>Editar tarefa de arquivos: {{.Job.Name}}</h1>
+<form method="post" action="{{.Base}}/jobs/{{.JobID}}/update">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+  <input type="hidden" name="kind" value="files">
+  <div>Nome: <input type="text" name="name" value="{{.Job.Name}}" required></div>
+  <div>Origem:
+    <div class="gb-path-row">
+      <input type="text" id="efile_source" name="source" value="{{.Job.Source}}" required>
+      <button type="button" class="secondary" onclick="gbOpenPicker('efile_source','{{.Base}}')">Escolher diretório…</button>
+    </div>
+  </div>
+  <div>Destino (caminho):
+    <div class="gb-path-row">
+      <input type="text" id="efile_dest" name="dest" value="{{.Job.Dest}}" required>
+      <button type="button" class="secondary" onclick="gbOpenPicker('efile_dest','{{.Base}}')">Escolher diretório…</button>
+    </div>
+  </div>
+  <div>Tipo de backup:
+    <select name="backup_type">
+      <option value="full" {{if eq .Job.BackupType "full"}}selected{{end}}>Completo</option>
+      <option value="incremental" {{if eq .Job.BackupType "incremental"}}selected{{end}}>Incremental</option>
+      <option value="differential" {{if eq .Job.BackupType "differential"}}selected{{end}}>Diferencial</option>
+    </select>
+  </div>
+  <div>Baseline (--link-dest, p/ incremental/diferencial):
+    <div class="gb-path-row">
+      <input type="text" id="efile_linkdest" name="link_dest" value="{{.Job.LinkDest}}">
+      <button type="button" class="secondary" onclick="gbOpenPicker('efile_linkdest','{{.Base}}')">Escolher diretório…</button>
+    </div>
+  </div>
+  <div>Tipo de destino:
+    <select name="dest_type">
+      <option value="local" {{if eq .Job.DestType "local"}}selected{{end}}>Local</option>
+      <option value="nas" {{if eq .Job.DestType "nas"}}selected{{end}}>NAS (montado)</option>
+      <option value="ssh" {{if eq .Job.DestType "ssh"}}selected{{end}}>SSH remoto</option>
+    </select>
+  </div>
+  <div>SSH host: <input type="text" name="ssh_host" value="{{.Job.SSHHost}}"></div>
+  <div>SSH porta: <input type="number" name="ssh_port" value="{{.Job.SSHPort}}"></div>
+  <div>SSH usuário: <input type="text" name="ssh_user" value="{{.Job.SSHUser}}"></div>
+  <div>SSH chave privada (caminho no agente):
+    <div class="gb-path-row">
+      <input type="text" id="efile_sshkey" name="ssh_key" value="{{.Job.SSHKey}}">
+      <button type="button" class="secondary" onclick="gbOpenPicker('efile_sshkey','{{.Base}}')">Escolher arquivo…</button>
+    </div>
+  </div>
+  <div>Agendamento (cron, opcional):
+    <input type="text" name="cron" value="{{.Job.Cron}}" placeholder="minuto hora dia mês dia-da-semana">
+  </div>
+  <div><label><input type="checkbox" name="enabled" {{if .Job.Enabled}}checked{{end}}> Habilitada (desmarcar pausa o agendamento, sem apagar a tarefa)</label></div>
+  <button type="submit">Salvar</button>
+</form>
+<p><a href="{{.Base}}/">&larr; voltar</a></p>
+`))
+
+var editDBTmpl = template.Must(template.New("edit-db").Parse(`
+<h1>Editar tarefa de banco de dados: {{.Job.Name}}</h1>
+<form method="post" action="{{.Base}}/jobs/{{.JobID}}/update">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+  <input type="hidden" name="kind" value="database">
+  <div>Nome: <input type="text" name="name" value="{{.Job.Name}}" required></div>
+  <div>Engine:
+    <select name="engine">
+      <option value="postgresql" {{if eq .Job.Engine "postgresql"}}selected{{end}}>PostgreSQL</option>
+      <option value="mysql" {{if eq .Job.Engine "mysql"}}selected{{end}}>MySQL</option>
+      <option value="mariadb" {{if eq .Job.Engine "mariadb"}}selected{{end}}>MariaDB</option>
+      <option value="sqlite" {{if eq .Job.Engine "sqlite"}}selected{{end}}>SQLite</option>
+    </select>
+  </div>
+  <div>Host: <input type="text" name="host" value="{{.Job.Host}}"></div>
+  <div>Porta: <input type="number" name="port" value="{{.Job.Port}}"></div>
+  <div>Usuário: <input type="text" name="username" value="{{.Job.Username}}"></div>
+  <div>Senha (não é salva; preencha de novo se este job foi recriado com credencial nova): <input type="password" name="password"></div>
+  <div>Banco específico: <input type="text" name="database" value="{{.Job.Database}}"></div>
+  <div><label><input type="checkbox" name="all_databases"> Todos os bancos (ignora o campo acima)</label></div>
+  <div>Caminho SQLite (só para engine=sqlite):
+    <div class="gb-path-row">
+      <input type="text" id="edb_sqlitepath" name="sqlite_path" value="{{.Job.SQLitePath}}">
+      <button type="button" class="secondary" onclick="gbOpenPicker('edb_sqlitepath','{{.Base}}')">Escolher arquivo…</button>
+    </div>
+  </div>
+  <div>Compressão:
+    <select name="compression">
+      <option value="gzip" {{if eq .Job.Compression "gzip"}}selected{{end}}>gzip</option>
+      <option value="zip" {{if eq .Job.Compression "zip"}}selected{{end}}>zip</option>
+      <option value="none" {{if eq .Job.Compression "none"}}selected{{end}}>nenhuma</option>
+    </select>
+  </div>
+  <div>Destino (diretório):
+    <div class="gb-path-row">
+      <input type="text" id="edb_dest" name="dest_path" value="{{.Job.DestPath}}" required>
+      <button type="button" class="secondary" onclick="gbOpenPicker('edb_dest','{{.Base}}')">Escolher diretório…</button>
+    </div>
+  </div>
+  <div>Tipo de destino:
+    <select name="dest_type">
+      <option value="local" {{if eq .Job.DestType "local"}}selected{{end}}>Local</option>
+      <option value="nas" {{if eq .Job.DestType "nas"}}selected{{end}}>NAS (montado)</option>
+      <option value="ssh" {{if eq .Job.DestType "ssh"}}selected{{end}}>SSH remoto</option>
+    </select>
+  </div>
+  <div>SSH host: <input type="text" name="ssh_host" value="{{.Job.SSHHost}}"></div>
+  <div>SSH porta: <input type="number" name="ssh_port" value="{{.Job.SSHPort}}"></div>
+  <div>SSH usuário: <input type="text" name="ssh_user" value="{{.Job.SSHUser}}"></div>
+  <div>SSH chave privada (caminho no agente):
+    <div class="gb-path-row">
+      <input type="text" id="edb_sshkey" name="ssh_key" value="{{.Job.SSHKey}}">
+      <button type="button" class="secondary" onclick="gbOpenPicker('edb_sshkey','{{.Base}}')">Escolher arquivo…</button>
+    </div>
+  </div>
+  <div>Agendamento (cron, opcional — só funciona se o banco não exigir senha):
+    <input type="text" name="cron" value="{{.Job.Cron}}" placeholder="minuto hora dia mês dia-da-semana">
+  </div>
+  <div><label><input type="checkbox" name="enabled" {{if .Job.Enabled}}checked{{end}}> Habilitada (desmarcar pausa o agendamento, sem apagar a tarefa)</label></div>
+  <button type="submit">Salvar</button>
+</form>
+<p><a href="{{.Base}}/">&larr; voltar</a></p>
+`))
+
+var progressTmpl = template.Must(template.New("progress").Parse(`
+<h1>Executando tarefa</h1>
+<div id="gb-progress-wrap" style="max-width:560px;">
+  <div style="background:#1b1b22; border:1px solid #333; border-radius:6px; height:28px; overflow:hidden; position:relative;">
+    <div id="gb-progress-bar" style="height:100%; width:0%; background:#2d6cdf; transition: width 0.3s;"></div>
+    <div id="gb-progress-label" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:0.85rem;">iniciando…</div>
+  </div>
+  <p id="gb-progress-message" style="margin-top:0.8rem;"></p>
+</div>
+<p><a href="{{.Base}}/">&larr; voltar</a> (a tarefa continua rodando mesmo se você sair desta página)</p>
+<style>
+.gb-indeterminate { background: repeating-linear-gradient(45deg, #2d6cdf, #2d6cdf 10px, #3a7ef0 10px, #3a7ef0 20px); background-size: 28px 28px; animation: gb-stripes 1s linear infinite; width:100% !important; }
+@keyframes gb-stripes { from { background-position: 0 0; } to { background-position: 28px 0; } }
+</style>
+<script>
+var gbJobID = {{.JobID}};
+var gbBase = {{.Base}};
+function gbPollStatus() {
+  fetch(gbBase + '/jobs/' + gbJobID + '/status', {credentials: 'same-origin'})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var bar = document.getElementById('gb-progress-bar');
+      var label = document.getElementById('gb-progress-label');
+      var msg = document.getElementById('gb-progress-message');
+      if (data.percent >= 0) {
+        bar.classList.remove('gb-indeterminate');
+        bar.style.width = data.percent + '%';
+        label.textContent = data.percent + '%';
+      } else {
+        bar.classList.add('gb-indeterminate');
+        label.textContent = data.status === 'running' ? 'em andamento…' : data.status;
+      }
+      msg.textContent = data.message || '';
+      msg.className = data.status === 'failed' ? 'error' : (data.status === 'success' ? 'status-success' : '');
+      if (data.status === 'success' || data.status === 'failed') {
+        bar.style.background = data.status === 'success' ? '#4caf50' : '#f44336';
+        bar.classList.remove('gb-indeterminate');
+        if (data.percent < 0) { bar.style.width = '100%'; }
+        return; // stop polling
+      }
+      setTimeout(gbPollStatus, 1000);
+    })
+    .catch(function() { setTimeout(gbPollStatus, 2000); });
+}
+gbPollStatus();
+</script>
 `))

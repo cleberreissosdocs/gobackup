@@ -12,14 +12,17 @@ import (
 
 // CentralRunner executes jobs on a remote agent via the command queue:
 // enqueue, then wait (short-poll the DB, same storage the agent reports
-// back into) for the agent to pick it up and report a result.
+// back into) for the agent to pick it up and report a result. Long-running
+// actions (RunJob) don't wait at all — progress comes from a cache the
+// agent refreshes on every heartbeat (JobStatus), never from blocking here.
 type CentralRunner struct {
 	Store   *db.Store
 	AgentID uuid.UUID
 
 	// WaitTimeout bounds how long the HTTP handler blocks waiting for the
-	// agent's next poll cycle to deliver+execute the command. Defaults to
-	// 5s if zero (comfortably longer than the agent's 1s poll interval).
+	// agent's next poll cycle to deliver+execute a quick command (create,
+	// get, update, list — NOT run, which never blocks). Defaults to 5s if
+	// zero (comfortably longer than the agent's 1s poll interval).
 	WaitTimeout time.Duration
 }
 
@@ -111,9 +114,8 @@ func (r *CentralRunner) lastCommandResult(ctx context.Context, cmdType string) (
 	return "", map[string]any{}, nil
 }
 
-func (r *CentralRunner) CreateFileJob(ctx context.Context, req FileJobRequest) (string, error) {
-	payload := map[string]any{
-		"kind":             "files",
+func fileJobPayload(req FileJobRequest) map[string]any {
+	return map[string]any{
 		"name":             req.Name,
 		"source_path":      req.Source,
 		"destination_path": req.Dest,
@@ -124,7 +126,35 @@ func (r *CentralRunner) CreateFileJob(ctx context.Context, req FileJobRequest) (
 		"ssh_port":         req.SSHPort,
 		"ssh_user":         req.SSHUser,
 		"ssh_key_path":     req.SSHKey,
+		"cron":             req.Cron,
+		"enabled":          req.Enabled,
 	}
+}
+
+func dbJobPayload(req DBJobRequest) map[string]any {
+	return map[string]any{
+		"name":             req.Name,
+		"engine":           req.Engine,
+		"host":             req.Host,
+		"port":             req.Port,
+		"username":         req.Username,
+		"database":         req.Database,
+		"sqlite_path":      req.SQLitePath,
+		"compression":      req.Compression,
+		"destination_path": req.DestPath,
+		"destination_type": req.DestType,
+		"ssh_host":         req.SSHHost,
+		"ssh_port":         req.SSHPort,
+		"ssh_user":         req.SSHUser,
+		"ssh_key_path":     req.SSHKey,
+		"cron":             req.Cron,
+		"enabled":          req.Enabled,
+	}
+}
+
+func (r *CentralRunner) CreateFileJob(ctx context.Context, req FileJobRequest) (string, error) {
+	payload := fileJobPayload(req)
+	payload["kind"] = "files"
 	outcome, err := r.enqueueAndWait(ctx, "create_job", payload)
 	if err != nil {
 		return "", err
@@ -141,23 +171,8 @@ func (r *CentralRunner) CreateFileJob(ctx context.Context, req FileJobRequest) (
 }
 
 func (r *CentralRunner) CreateDBJob(ctx context.Context, req DBJobRequest) (string, error) {
-	payload := map[string]any{
-		"kind":             "database",
-		"name":             req.Name,
-		"engine":           req.Engine,
-		"host":             req.Host,
-		"port":             req.Port,
-		"username":         req.Username,
-		"database":         req.Database,
-		"sqlite_path":      req.SQLitePath,
-		"compression":      req.Compression,
-		"destination_path": req.DestPath,
-		"destination_type": req.DestType,
-		"ssh_host":         req.SSHHost,
-		"ssh_port":         req.SSHPort,
-		"ssh_user":         req.SSHUser,
-		"ssh_key_path":     req.SSHKey,
-	}
+	payload := dbJobPayload(req)
+	payload["kind"] = "database"
 	outcome, err := r.enqueueAndWait(ctx, "create_job", payload)
 	if err != nil {
 		return "", err
@@ -171,6 +186,92 @@ func (r *CentralRunner) CreateDBJob(ctx context.Context, req DBJobRequest) (stri
 	}
 	jobID, _ := result["job_id"].(string)
 	return jobID, nil
+}
+
+func strField(m map[string]any, key string) string {
+	v, _ := m[key].(string)
+	return v
+}
+
+func intField(m map[string]any, key string) int {
+	if f, ok := m[key].(float64); ok {
+		return int(f)
+	}
+	return 0
+}
+
+func boolField(m map[string]any, key string) bool {
+	v, _ := m[key].(bool)
+	return v
+}
+
+func (r *CentralRunner) GetFileJob(ctx context.Context, jobID string) (FileJobRequest, error) {
+	outcome, err := r.enqueueAndWait(ctx, "get_job", map[string]any{"job_id": jobID})
+	if err != nil {
+		return FileJobRequest{}, err
+	}
+	if outcome.Status != "success" {
+		return FileJobRequest{}, fmt.Errorf("%s", outcome.Message)
+	}
+	_, m, err := r.lastCommandResult(ctx, "get_job")
+	if err != nil {
+		return FileJobRequest{}, err
+	}
+	return FileJobRequest{
+		Name: strField(m, "name"), Source: strField(m, "source_path"), Dest: strField(m, "destination_path"),
+		BackupType: strField(m, "backup_type"), LinkDest: strField(m, "link_dest"), DestType: strField(m, "destination_type"),
+		SSHHost: strField(m, "ssh_host"), SSHPort: intField(m, "ssh_port"), SSHUser: strField(m, "ssh_user"), SSHKey: strField(m, "ssh_key_path"),
+		Cron: strField(m, "cron"), Enabled: boolField(m, "enabled"),
+	}, nil
+}
+
+func (r *CentralRunner) GetDBJob(ctx context.Context, jobID string) (DBJobRequest, error) {
+	outcome, err := r.enqueueAndWait(ctx, "get_job", map[string]any{"job_id": jobID})
+	if err != nil {
+		return DBJobRequest{}, err
+	}
+	if outcome.Status != "success" {
+		return DBJobRequest{}, fmt.Errorf("%s", outcome.Message)
+	}
+	_, m, err := r.lastCommandResult(ctx, "get_job")
+	if err != nil {
+		return DBJobRequest{}, err
+	}
+	return DBJobRequest{
+		Name: strField(m, "name"), Engine: strField(m, "engine"), Host: strField(m, "host"), Port: intField(m, "port"),
+		Username: strField(m, "username"), Database: strField(m, "database"), SQLitePath: strField(m, "sqlite_path"),
+		Compression: strField(m, "compression"), DestPath: strField(m, "destination_path"), DestType: strField(m, "destination_type"),
+		SSHHost: strField(m, "ssh_host"), SSHPort: intField(m, "ssh_port"), SSHUser: strField(m, "ssh_user"), SSHKey: strField(m, "ssh_key_path"),
+		Cron: strField(m, "cron"), Enabled: boolField(m, "enabled"),
+	}, nil
+}
+
+func (r *CentralRunner) UpdateFileJob(ctx context.Context, jobID string, req FileJobRequest) error {
+	payload := fileJobPayload(req)
+	payload["kind"] = "files"
+	payload["job_id"] = jobID
+	outcome, err := r.enqueueAndWait(ctx, "update_job", payload)
+	if err != nil {
+		return err
+	}
+	if outcome.Status != "success" {
+		return fmt.Errorf("%s", outcome.Message)
+	}
+	return nil
+}
+
+func (r *CentralRunner) UpdateDBJob(ctx context.Context, jobID string, req DBJobRequest) error {
+	payload := dbJobPayload(req)
+	payload["kind"] = "database"
+	payload["job_id"] = jobID
+	outcome, err := r.enqueueAndWait(ctx, "update_job", payload)
+	if err != nil {
+		return err
+	}
+	if outcome.Status != "success" {
+		return fmt.Errorf("%s", outcome.Message)
+	}
+	return nil
 }
 
 func (r *CentralRunner) ListJobs(ctx context.Context) ([]JobSummary, error) {
@@ -192,16 +293,33 @@ func (r *CentralRunner) ListJobs(ctx context.Context) ([]JobSummary, error) {
 		if !ok {
 			continue
 		}
-		id, _ := m["id"].(string)
-		name, _ := m["name"].(string)
-		kind, _ := m["kind"].(string)
-		out = append(out, JobSummary{ID: id, Name: name, Kind: kind})
+		out = append(out, JobSummary{
+			ID: strField(m, "id"), Name: strField(m, "name"), Kind: strField(m, "kind"),
+			Cron: strField(m, "cron"), Enabled: boolField(m, "enabled"),
+		})
 	}
 	return out, nil
 }
 
+// RunJob fires the run_job command and returns immediately — it does NOT
+// wait for completion. Progress is reported via JobStatus, refreshed by the
+// agent's next heartbeat(s), same mechanism as the jobs list.
 func (r *CentralRunner) RunJob(ctx context.Context, jobID, password string) (JobOutcome, error) {
-	return r.enqueueAndWait(ctx, "run_job", map[string]any{"job_id": jobID, "password": password})
+	if _, err := r.Store.EnqueueCommand(ctx, r.AgentID, "run_job", map[string]any{"job_id": jobID, "password": password}); err != nil {
+		return JobOutcome{Status: "failed", Message: err.Error()}, nil
+	}
+	return JobOutcome{Status: "started", Message: "Comando enviado ao agente."}, nil
+}
+
+func (r *CentralRunner) JobStatus(ctx context.Context, jobID string) (ProgressInfo, error) {
+	status, percent, message, found, err := r.Store.GetAgentJobStatus(ctx, r.AgentID, jobID)
+	if err != nil {
+		return ProgressInfo{}, err
+	}
+	if !found {
+		return ProgressInfo{Status: "idle"}, nil
+	}
+	return ProgressInfo{Status: status, Percent: percent, Message: message}, nil
 }
 
 func (r *CentralRunner) RecentActivity(ctx context.Context, limit int) ([]ActivityItem, error) {

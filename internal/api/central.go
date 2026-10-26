@@ -112,15 +112,25 @@ type commandResultDTO struct {
 }
 
 type jobInfoDTO struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Kind string `json:"kind"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Kind    string `json:"kind"`
+	Cron    string `json:"cron"`
+	Enabled bool   `json:"enabled"`
+}
+
+type runningInfoDTO struct {
+	JobID   string `json:"job_id"`
+	Status  string `json:"status"`
+	Percent int    `json:"percent"`
+	Message string `json:"message"`
 }
 
 type pollRequest struct {
 	Status         string             `json:"status"`
 	CommandResults []commandResultDTO `json:"command_results"`
 	Jobs           []jobInfoDTO       `json:"jobs"`
+	Running        []runningInfoDTO   `json:"running"`
 }
 
 type pollResponse struct {
@@ -156,6 +166,14 @@ func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.Store.ReplaceAgentJobsSnapshot(ctx, agentID, jobSnapshot); err != nil {
 		log.Println("poll: replace jobs snapshot:", err) // non-fatal: dashboard just shows a stale list
+	}
+
+	runningSnapshot := make([]db.RemoteExecutionStatus, 0, len(req.Running))
+	for _, s2 := range req.Running {
+		runningSnapshot = append(runningSnapshot, db.RemoteExecutionStatus{JobID: s2.JobID, Status: s2.Status, Percent: s2.Percent, Message: s2.Message})
+	}
+	if err := s.Store.ReplaceAgentExecutionStatus(ctx, agentID, runningSnapshot); err != nil {
+		log.Println("poll: replace execution status:", err) // non-fatal: progress bar just shows stale data
 	}
 
 	for _, cr := range req.CommandResults {
