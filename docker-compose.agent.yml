@@ -19,7 +19,10 @@
 #
 # Mount whatever host directories you want backed up under /backups — paths
 # you type into the web UI or CLI (-source/-dest) must be the IN-CONTAINER
-# path, e.g. /backups/www.
+# path, e.g. /backups/www. The host's /mnt is also mounted at /mnt inside
+# the container by default (see MNT_HOST_DIR in .env.agent) — useful if
+# whatever you want backed up already lives on an external disk or NAS
+# share mounted there, without needing a new volume line for every server.
 
 services:
   postgres:
@@ -64,6 +67,7 @@ services:
       - agent_data:/data
       - ${BACKUP_SOURCE_DIR:-./backups}:/backups
       - ${SSH_KEY_DIR:-./ssh-keys}:/ssh-keys:ro
+      - ${MNT_HOST_DIR:-/mnt}:/mnt
 
 volumes:
   agent_pg_data:
