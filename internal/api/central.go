@@ -410,6 +410,10 @@ form.logout { display:inline; margin-left: 1rem; }
 button { background:#2d6cdf; color:#fff; border:none; padding:0.3rem 0.8rem; cursor:pointer; border-radius:4px; }
 button.secondary { background:#8a2d2d; }
 button.secondary:hover { background:#a83a3a; }
+button:disabled, button.secondary:disabled { background:#2a2a2a; color:#777; cursor:not-allowed; }
+tr.gb-row-offline { color:#6d7280; }
+tr.gb-row-offline td { color:#6d7280; }
+.gb-disabled-link { color:#555; cursor:not-allowed; pointer-events:none; }
 </style>
 </head>
 <body>
@@ -443,12 +447,13 @@ button.secondary:hover { background:#a83a3a; }
 <table>
 <tr><th>Servidor</th><th>Tarefa</th><th>Tipo</th><th>Agendamento</th><th>Ação</th></tr>
 {{range .Jobs}}
-<tr>
-  <td>{{.AgentName}}</td>
+<tr class="{{if not .AgentOnline}}gb-row-offline{{end}}">
+  <td>{{.AgentName}}{{if not .AgentOnline}} <small>(offline)</small>{{end}}</td>
   <td>{{.Name}}{{if not .Enabled}} <small>(desabilitada)</small>{{end}}</td>
   <td>{{if eq .Kind "files"}}Arquivos{{else}}Banco de dados{{end}}</td>
   <td>{{if .Cron}}{{.Cron}}{{else}}<small>manual</small>{{end}}</td>
   <td style="white-space:nowrap;">
+    {{if .AgentOnline}}
     <a href="/agents/{{.AgentID}}/jobs/{{.JobID}}/edit">Editar</a>
     <form method="post" action="/agents/{{.AgentID}}/jobs/{{.JobID}}/run" style="display:inline-flex; gap:0.5rem; align-items:center; margin-left:0.8rem">
       <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
@@ -461,6 +466,13 @@ button.secondary:hover { background:#a83a3a; }
       <button type="submit" class="secondary">Apagar</button>
     </form>
     </span>
+    {{else}}
+    <a class="gb-disabled-link" title="agente offline — ações indisponíveis até reconectar">Editar</a>
+    <button type="button" disabled title="agente offline — ações indisponíveis até reconectar" style="margin-left:0.8rem">Executar</button>
+    <span style="display:inline-block; width:1.5rem;"></span><span style="border-left:1px solid #444; padding-left:1rem;">
+    <button type="button" class="secondary" disabled title="agente offline — ações indisponíveis até reconectar">Apagar</button>
+    </span>
+    {{end}}
   </td>
 </tr>
 {{else}}
@@ -480,13 +492,14 @@ type dashboardAgentView struct {
 }
 
 type dashboardJobView struct {
-	AgentID   string
-	AgentName string
-	JobID     string
-	Name      string
-	Kind      string
-	Cron      string
-	Enabled   bool
+	AgentID     string
+	AgentName   string
+	JobID       string
+	Name        string
+	Kind        string
+	Cron        string
+	Enabled     bool
+	AgentOnline bool
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -519,6 +532,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	onlineByAgent := map[uuid.UUID]bool{}
+	for _, a := range agents {
+		onlineByAgent[a.ID] = a.Status == "online"
+	}
+
 	jobRows, err := s.Store.ListAllAgentJobs(ctx)
 	if err != nil {
 		log.Println("dashboard: list all agent jobs:", err) // non-fatal: show the page without the jobs table
@@ -527,7 +545,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	for _, j := range jobRows {
 		jobViews = append(jobViews, dashboardJobView{
 			AgentID: j.AgentID.String(), AgentName: j.AgentName, JobID: j.JobID, Name: j.Name, Kind: j.Kind,
-			Cron: j.Cron, Enabled: j.Enabled,
+			Cron: j.Cron, Enabled: j.Enabled, AgentOnline: onlineByAgent[j.AgentID],
 		})
 	}
 
