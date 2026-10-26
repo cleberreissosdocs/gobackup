@@ -1,0 +1,50 @@
+# GoBackup Central — deploy stack (central app + its own Postgres).
+# Usage:
+#   1. cp .env.central.example .env.central  (edit values)
+#   2. docker compose -f docker-compose.central.yml --env-file .env.central up -d --build
+#   3. docker compose -f docker-compose.central.yml exec central gobackup-central migrate -db "postgres://gobackup:${POSTGRES_PASSWORD}@postgres:5432/gobackup?sslmode=disable"
+#   4. docker compose -f docker-compose.central.yml exec central gobackup-central create-user -db "postgres://gobackup:${POSTGRES_PASSWORD}@postgres:5432/gobackup?sslmode=disable" -email admin -password <escolha>
+#
+# The Central's self-signed TLS cert (needed by every agent as -central-ca)
+# is written to the tls_data volume; copy it out with:
+#   docker compose -f docker-compose.central.yml cp central:/data/gobackup-central-cert.pem ./gobackup-central-cert.pem
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gobackup
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.central}
+      POSTGRES_DB: gobackup
+    volumes:
+      - central_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gobackup"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  central:
+    build:
+      context: .
+      dockerfile: Dockerfile.central
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.central}
+    command:
+      - serve
+      - -db=postgres://gobackup:${POSTGRES_PASSWORD}@postgres:5432/gobackup?sslmode=disable
+      - -addr=:8443
+      - -tls-hosts=${TLS_HOSTS:-localhost,127.0.0.1}
+    ports:
+      - "${CENTRAL_PORT:-8443}:8443"
+    volumes:
+      - central_tls:/data
+
+volumes:
+  central_pg_data:
+  central_tls:

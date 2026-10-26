@@ -1,0 +1,18 @@
+# Multi-stage build for gobackup-central.
+# The Central never touches databases/rsync directly (agents do all of
+# that); it only needs the Go binary plus CA certs for outbound HTTPS
+# (SMTP/Telegram notifications).
+
+FROM golang:1.26-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/gobackup-central ./cmd/central
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates tzdata
+COPY --from=build /out/gobackup-central /usr/local/bin/gobackup-central
+WORKDIR /data
+ENTRYPOINT ["gobackup-central"]
+CMD ["--help"]

@@ -1,0 +1,26 @@
+# Multi-stage build for gobackup-agent.
+# Runtime image includes the tools the agent shells out to:
+# rsync (file backups), openssh-client (ssh destinations / known_hosts),
+# postgresql-client (pg_dump/pg_dumpall), mariadb-client (mysqldump, works
+# for both MySQL and MariaDB), sqlite (sqlite3 CLI, optional .backup mode).
+
+FROM golang:1.26-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/gobackup-agent ./cmd/agent
+
+FROM alpine:3.20
+RUN apk add --no-cache \
+      rsync \
+      openssh-client \
+      postgresql16-client \
+      mariadb-client \
+      sqlite \
+      ca-certificates \
+      tzdata
+COPY --from=build /out/gobackup-agent /usr/local/bin/gobackup-agent
+WORKDIR /data
+ENTRYPOINT ["gobackup-agent"]
+CMD ["--help"]

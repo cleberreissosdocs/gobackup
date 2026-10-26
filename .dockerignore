@@ -1,0 +1,8 @@
+.git
+*.pem
+*-cert.pem
+*-key.pem
+/tmp
+scripts/received_emails.txt
+*.log
+docker-compose.dev.yml
