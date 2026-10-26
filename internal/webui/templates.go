@@ -150,14 +150,6 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
 <h1>{{.Name}}</h1>
 
 <fieldset>
-<legend>Explorar diretórios</legend>
-<form method="get" action="{{.Base}}/browse">
-  <input type="text" name="path" placeholder="/caminho/no/servidor" required>
-  <button type="submit">Listar</button>
-</form>
-</fieldset>
-
-<fieldset>
 <legend>Nova tarefa de arquivos</legend>
 <form method="post" action="{{.Base}}/jobs/file">
   <input type="hidden" name="csrf_token" value="{{.CSRF}}">
