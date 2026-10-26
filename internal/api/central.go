@@ -14,15 +14,17 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/cleber/gobackup/internal/db"
+	"github.com/cleber/gobackup/internal/notify"
 )
 
 type Server struct {
-	Store *db.Store
-	Mux   *http.ServeMux
+	Store    *db.Store
+	Notifier *notify.Dispatcher
+	Mux      *http.ServeMux
 }
 
 func NewServer(store *db.Store) *Server {
-	s := &Server{Store: store, Mux: http.NewServeMux()}
+	s := &Server{Store: store, Notifier: &notify.Dispatcher{Store: store}, Mux: http.NewServeMux()}
 	s.routes()
 	return s
 }
@@ -31,6 +33,7 @@ func (s *Server) routes() {
 	s.Mux.HandleFunc("POST /api/v1/agents/register", s.handleRegister)
 	s.Mux.HandleFunc("POST /api/v1/agents/poll", s.handlePoll)
 	s.Mux.HandleFunc("POST /api/v1/agents/{id}/commands", s.handleEnqueueCommand)
+	s.Mux.HandleFunc("POST /api/v1/notification-channels", s.handleCreateNotificationChannel)
 	s.Mux.HandleFunc("GET /", s.handleDashboard)
 	s.Mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -123,6 +126,17 @@ func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
 		if err := s.Store.RecordCommandResult(ctx, cmdID, cr.Status, cr.Result); err != nil {
 			log.Println("poll: record command result:", err)
 		}
+		if cr.Status == "failed" {
+			tenantID, name, err := s.Store.AgentTenantAndName(ctx, agentID)
+			if err != nil {
+				log.Println("poll: agent tenant lookup:", err)
+			} else {
+				errMsg, _ := cr.Result["error"].(string)
+				s.Notifier.Dispatch(ctx, tenantID, "job_failed",
+					fmt.Sprintf("[GoBackup] Falha em comando remoto — %s", name),
+					fmt.Sprintf("O servidor %q reportou falha ao executar um comando remoto (command_id=%s).\n\nErro: %s", name, cr.CommandID, errMsg))
+			}
+		}
 	}
 
 	commands, err := s.Store.FetchAndDeliverPendingCommands(ctx, agentID)
@@ -169,6 +183,43 @@ func (s *Server) handleEnqueueCommand(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]string{"command_id": cmdID.String()})
+}
+
+type createNotificationChannelRequest struct {
+	Type   string         `json:"type"` // "email" | "telegram"
+	Config map[string]any `json:"config"`
+	Events []string       `json:"events"`
+}
+
+// handleCreateNotificationChannel registers an alert channel on the single
+// default tenant used by this MVP. POST /api/v1/notification-channels.
+func (s *Server) handleCreateNotificationChannel(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	var req createNotificationChannelRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	if req.Type != "email" && req.Type != "telegram" {
+		httpError(w, http.StatusBadRequest, "type must be email or telegram")
+		return
+	}
+
+	tenantID, err := s.Store.EnsureDefaultTenant(ctx)
+	if err != nil {
+		log.Println("create channel: ensure tenant:", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	id, err := s.Store.CreateNotificationChannel(ctx, tenantID, req.Type, req.Config, req.Events)
+	if err != nil {
+		log.Println("create channel:", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]string{"channel_id": id.String()})
 }
 
 var dashboardTmpl = template.Must(template.New("dashboard").Parse(`<!doctype html>

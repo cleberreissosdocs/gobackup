@@ -13,6 +13,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/cleber/gobackup/internal/api"
 	"github.com/cleber/gobackup/internal/db"
@@ -70,9 +71,38 @@ func cmdServe(args []string) {
 	defer store.Close()
 
 	srv := api.NewServer(store)
+	go runOfflineChecker(context.Background(), store, srv)
+
 	log.Printf("gobackup-central listening on %s", *addr)
 	if err := http.ListenAndServe(*addr, srv.Mux); err != nil {
 		fatal(err.Error())
+	}
+}
+
+// runOfflineChecker periodically scans for agents that have gone silent
+// and fires the "agent_offline" notification once per outage.
+func runOfflineChecker(ctx context.Context, store *db.Store, srv *api.Server) {
+	ticker := time.NewTicker(20 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		agents, err := store.ListAgentsNeedingOfflineAlert(ctx)
+		if err != nil {
+			log.Println("offline checker:", err)
+			continue
+		}
+		for _, a := range agents {
+			tenantID, _, err := store.AgentTenantAndName(ctx, a.ID)
+			if err != nil {
+				log.Println("offline checker: tenant lookup:", err)
+				continue
+			}
+			srv.Notifier.Dispatch(ctx, tenantID, "agent_offline",
+				fmt.Sprintf("[GoBackup] Servidor offline — %s", a.Name),
+				fmt.Sprintf("O servidor %q (%s) parou de enviar heartbeat.", a.Name, a.Hostname))
+			if err := store.MarkAgentOfflineNotified(ctx, a.ID); err != nil {
+				log.Println("offline checker: mark notified:", err)
+			}
+		}
 	}
 }
 

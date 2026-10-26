@@ -66,7 +66,7 @@ func (s *Store) AuthenticateAgent(ctx context.Context, token string) (uuid.UUID,
 // TouchAgentHeartbeat records that an agent just polled in, successfully.
 func (s *Store) TouchAgentHeartbeat(ctx context.Context, agentID uuid.UUID, status string) error {
 	_, err := s.Pool.Exec(ctx, `
-		UPDATE agents SET status = 'online', last_seen_at = now() WHERE id = $1
+		UPDATE agents SET status = 'online', last_seen_at = now(), notified_offline_at = NULL WHERE id = $1
 	`, agentID)
 	_ = status // reserved for future use (idle/running distinction in the dashboard)
 	if err != nil {
@@ -146,6 +146,102 @@ func (s *Store) RecordCommandResult(ctx context.Context, commandID uuid.UUID, st
 		return fmt.Errorf("record command result: %w", err)
 	}
 	return nil
+}
+
+// AgentTenantAndName resolves the tenant and display name for an agent, so
+// callers (e.g. the notifier) can route an alert without a second round
+// trip from the caller's side.
+func (s *Store) AgentTenantAndName(ctx context.Context, agentID uuid.UUID) (tenantID uuid.UUID, name string, err error) {
+	err = s.Pool.QueryRow(ctx, `SELECT tenant_id, name FROM agents WHERE id = $1`, agentID).Scan(&tenantID, &name)
+	if err != nil {
+		return uuid.Nil, "", fmt.Errorf("agent tenant lookup: %w", err)
+	}
+	return tenantID, name, nil
+}
+
+// CreateNotificationChannel registers an email or telegram alert channel
+// for a tenant. events is the list of event names that should trigger it
+// (e.g. "job_failed", "agent_offline"); an empty list means "all events".
+func (s *Store) CreateNotificationChannel(ctx context.Context, tenantID uuid.UUID, chType string, config map[string]any, events []string) (uuid.UUID, error) {
+	var id uuid.UUID
+	err := s.Pool.QueryRow(ctx, `
+		INSERT INTO notification_channels (tenant_id, type, config, events)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id
+	`, tenantID, chType, config, events).Scan(&id)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("create notification channel: %w", err)
+	}
+	return id, nil
+}
+
+// NotificationChannelRow is a read model for dispatching alerts.
+type NotificationChannelRow struct {
+	ID     uuid.UUID
+	Type   string
+	Config map[string]any
+	Events []string
+}
+
+// ListNotificationChannels returns every alert channel configured for a tenant.
+func (s *Store) ListNotificationChannels(ctx context.Context, tenantID uuid.UUID) ([]NotificationChannelRow, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT id, type, config, events FROM notification_channels WHERE tenant_id = $1
+	`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("list notification channels: %w", err)
+	}
+	defer rows.Close()
+
+	var out []NotificationChannelRow
+	for rows.Next() {
+		var c NotificationChannelRow
+		var events []string
+		if err := rows.Scan(&c.ID, &c.Type, &c.Config, &events); err != nil {
+			return nil, fmt.Errorf("scan notification channel: %w", err)
+		}
+		c.Events = events
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// MarkAgentOfflineNotified / ClearAgentOfflineNotified debounce the
+// "agent went offline" alert so it fires once per outage, not on every
+// dashboard poll/background check.
+func (s *Store) MarkAgentOfflineNotified(ctx context.Context, agentID uuid.UUID) error {
+	_, err := s.Pool.Exec(ctx, `UPDATE agents SET notified_offline_at = now() WHERE id = $1`, agentID)
+	return err
+}
+
+func (s *Store) ClearAgentOfflineNotified(ctx context.Context, agentID uuid.UUID) error {
+	_, err := s.Pool.Exec(ctx, `UPDATE agents SET notified_offline_at = NULL WHERE id = $1 AND notified_offline_at IS NOT NULL`, agentID)
+	return err
+}
+
+// ListAgentsNeedingOfflineAlert returns agents that are stale (no heartbeat
+// within staleAfter) and haven't already been alerted on for this outage.
+func (s *Store) ListAgentsNeedingOfflineAlert(ctx context.Context) ([]AgentView, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT id, name, hostname, status, last_seen_at
+		FROM agents
+		WHERE notified_offline_at IS NULL
+		  AND (last_seen_at IS NULL OR last_seen_at < now() - interval '45 seconds')
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list agents needing offline alert: %w", err)
+	}
+	defer rows.Close()
+
+	var out []AgentView
+	for rows.Next() {
+		var a AgentView
+		if err := rows.Scan(&a.ID, &a.Name, &a.Hostname, &a.Status, &a.LastSeenAt); err != nil {
+			return nil, fmt.Errorf("scan agent: %w", err)
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
 }
 
 // AgentView is a read model for the Central dashboard.
