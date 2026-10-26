@@ -1,0 +1,18 @@
+# Secrets / local deploy config — never commit real credentials
+.env
+.env.*
+!.env.*.example
+*.pem
+*.key
+ssh-keys/
+agent-token
+agent-token*
+
+# Test/runtime data
+backups/
+*.log
+
+# Build artifacts
+/gobackup-agent
+/gobackup-central
+/tmp/
