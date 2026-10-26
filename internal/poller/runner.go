@@ -50,6 +50,34 @@ func (r *Runner) Configure(ctx context.Context, centralURL, token string, caPEM 
 	return r.Store.SetSetting(ctx, settingCentralCA, string(caPEM))
 }
 
+// Unregister clears this agent's Central connection settings — it stops
+// heartbeating and goes "offline" from any Central's point of view on the
+// very next missed beat. Purely local: it does NOT reach out to the
+// Central to delete the agent's registration there (the agent may be
+// unreachable from here, or the operator may want to keep its history);
+// if the agent should also disappear from a Central's dashboard, remove it
+// there directly ("Apagar" button). The job definitions and their
+// execution history on THIS machine are untouched — re-registering later
+// (to the same or a different Central) picks them back up automatically.
+func (r *Runner) Unregister(ctx context.Context) error {
+	if err := r.Store.SetSetting(ctx, settingCentralURL, ""); err != nil {
+		return err
+	}
+	if err := r.Store.SetSetting(ctx, settingToken, ""); err != nil {
+		return err
+	}
+	if err := r.Store.SetSetting(ctx, settingCentralCA, ""); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	r.cachedClient = nil
+	r.cachedKey = ""
+	r.lastBeatOK = false
+	r.lastBeatError = ""
+	r.mu.Unlock()
+	return nil
+}
+
 // Status reports the current configuration + last heartbeat outcome, for
 // the Settings page to display.
 type Status struct {

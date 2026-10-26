@@ -24,6 +24,7 @@ type SettingsHandler struct {
 func (h *SettingsHandler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /settings", h.Auth.RequireLogin(h.handleForm))
 	mux.HandleFunc("POST /settings", h.Auth.RequireLoginAndCSRF(h.handleSubmit))
+	mux.HandleFunc("POST /settings/unregister", h.Auth.RequireLoginAndCSRF(h.handleUnregister))
 }
 
 func (h *SettingsHandler) render(w http.ResponseWriter, r *http.Request, data map[string]any) {
@@ -68,6 +69,22 @@ func (h *SettingsHandler) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *SettingsHandler) handleUnregister(w http.ResponseWriter, r *http.Request) {
+	var message, errMsg string
+	if err := h.Heart.Unregister(r.Context()); err != nil {
+		errMsg = "falha ao desregistrar: " + err.Error()
+	} else {
+		message = "Desregistrado. Este agente não envia mais heartbeat para nenhum Central. As tarefas e o histórico locais continuam intactos — você pode registrar novamente (neste ou em outro Central) a qualquer momento."
+	}
+	status := h.Heart.Status(r.Context())
+	h.render(w, r, map[string]any{
+		"Status":  status,
+		"CSRF":    h.Auth.CSRFToken(r),
+		"Message": message,
+		"Error":   errMsg,
+	})
+}
+
 var SettingsTmpl = template.Must(template.New("settings").Parse(`
 <h1>Configurações</h1>
 {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
@@ -85,6 +102,12 @@ var SettingsTmpl = template.Must(template.New("settings").Parse(`
   Nenhum heartbeat enviado ainda.
   {{end}}
 </p>
+{{if .Status.Configured}}
+<form method="post" action="/settings/unregister" onsubmit="return confirm('Desregistrar este agente do Central? Ele para de enviar heartbeat imediatamente. As tarefas e o histórico locais NÃO são apagados — você pode registrar de novo depois.');">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+  <button type="submit" class="danger">Desregistrar deste Central</button>
+</form>
+{{end}}
 </fieldset>
 
 <fieldset>
