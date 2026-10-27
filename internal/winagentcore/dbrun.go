@@ -10,7 +10,7 @@
 // agent's internal/dbjob.Run shells out to rsync over ssh for that, but
 // rsync isn't available on a stock Windows box, so this uses the pure-Go
 // SFTP uploader in sshdest.go instead.
-package main
+package winagentcore
 
 import (
 	"context"

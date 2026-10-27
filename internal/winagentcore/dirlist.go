@@ -3,7 +3,7 @@
 // every origin/destination field). Windows has no single filesystem root
 // like Linux's "/" — when asked for the root (the picker's starting
 // point), this lists available drive letters instead of erroring out.
-package main
+package winagentcore
 
 import (
 	"fmt"
@@ -36,9 +36,9 @@ var leadingDriveSlash = regexp.MustCompile(`^/([A-Za-z]:)`)
 // always mean the root here, so rewrite either spelling to "C:\".
 var bareDrive = regexp.MustCompile(`^([A-Za-z]:)\.?$`)
 
-// normalizeWindowsPath turns whatever shape the (Linux-authored) picker JS
+// NormalizeWindowsPath turns whatever shape the (Linux-authored) picker JS
 // sent into a real Windows path os.ReadDir can use.
-func normalizeWindowsPath(path string) string {
+func NormalizeWindowsPath(path string) string {
 	if path == "" {
 		return ""
 	}
@@ -69,7 +69,7 @@ func listDir(payload map[string]any) (map[string]any, error) {
 		// behave like a normal root listing.
 		path = "/"
 	} else {
-		path = normalizeWindowsPath(path)
+		path = NormalizeWindowsPath(path)
 	}
 
 	entries, err := os.ReadDir(path)

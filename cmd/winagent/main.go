@@ -1,79 +1,22 @@
 // Command gobackup-winagent is the Windows-native counterpart to
 // gobackup-agent, built for machines where running Docker/Postgres/a web
-// UI is undesirable or unavailable (e.g. Windows Server Core, or simply
-// "don't want another web app running"). It currently covers ONLY the
-// "Configurações" equivalent from the Linux agent: pointing at a Central,
-// registering, heartbeating (so the agent shows up online with its job
-// list — empty for now), and unregistering. Job execution (actual file/DB
-// backups) is a separate, later phase — see internal/poller, which this
-// binary reuses as-is (pure Go, no cgo, OS-agnostic) for the wire
-// protocol, so nothing here reimplements registration/heartbeat logic.
-//
-// Config is a local JSON file (no Postgres/web UI on this platform):
-// %ProgramData%\GoBackup\config.json — holds the Central URL, the issued
-// bearer token, and the pinned CA cert PEM (all local-only, like the
-// Linux agent's agent_settings table serves the same purpose there).
+// UI is undesirable or unavailable (e.g. Windows Server Core). This is the
+// headless CLI variant, meant for unattended servers (run `serve` under a
+// Scheduled Task). For a desktop machine with a logged-in user, see
+// cmd/winagent-tray instead — same engine (internal/winagentcore), with a
+// system-tray icon and a local config page instead of a terminal.
 package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/cleber/gobackup/internal/poller"
+	"github.com/cleber/gobackup/internal/winagentcore"
 )
-
-type config struct {
-	CentralURL string `json:"central_url"`
-	Token      string `json:"token"`
-	AgentID    string `json:"agent_id"`
-	Name       string `json:"name"`
-	Hostname   string `json:"hostname"`
-	CACertPEM  string `json:"ca_cert_pem"`
-}
-
-func configPath() string {
-	base := os.Getenv("ProgramData")
-	if base == "" {
-		// Not running on Windows (or ProgramData unset) — fall back to the
-		// working directory so `go run`/local testing still works.
-		base = "."
-	}
-	return filepath.Join(base, "GoBackup", "config.json")
-}
-
-func loadConfig() (config, error) {
-	var c config
-	data, err := os.ReadFile(configPath())
-	if err != nil {
-		if os.IsNotExist(err) {
-			return config{}, nil
-		}
-		return config{}, err
-	}
-	if err := json.Unmarshal(data, &c); err != nil {
-		return config{}, fmt.Errorf("parse config: %w", err)
-	}
-	return c, nil
-}
-
-func saveConfig(c config) error {
-	path := configPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("create config dir: %w", err)
-	}
-	data, err := json.MarshalIndent(c, "", "  ")
-	if err != nil {
-		return err
-	}
-	// 0600-equivalent: Windows ACLs aren't controlled by this bit, but it's
-	// harmless and matches what the Linux side would do for a secrets file.
-	return os.WriteFile(path, data, 0o600)
-}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -109,7 +52,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, `gobackup-winagent — GoBackup agent for Windows (register/connect/disconnect only, for now)
+	fmt.Fprintln(os.Stderr, `gobackup-winagent — GoBackup agent for Windows
 
 Usage:
   gobackup-winagent register -central <url> [-ca <path-to-ca.pem>] [-name <nome>]
@@ -119,8 +62,9 @@ Usage:
   gobackup-winagent serve
       Runs the heartbeat loop in the foreground (1s interval, same as the
       Linux agent) using the saved registration. Ctrl+C to stop. Run this
-      under a Scheduled Task (or as a Windows Service, once added) to keep
-      it running unattended.
+      under a Scheduled Task to keep it running unattended on a server.
+      For a desktop machine, use gobackup-winagent-tray instead — it shows
+      a tray icon and needs no terminal window.
 
   gobackup-winagent status
       Shows the saved registration and does one test heartbeat.
@@ -161,53 +105,24 @@ func cmdRegister(args []string) {
 		fmt.Fprintln(os.Stderr, "error: -central is required")
 		os.Exit(2)
 	}
-	hostname, err := os.Hostname()
-	if err != nil {
-		hostname = "windows-agent"
-	}
-	agentName := *name
-	if agentName == "" {
-		agentName = hostname
-	}
-
-	var caPEM []byte
-	if *caPath != "" {
-		caPEM, err = poller.LoadCACertFile(*caPath)
-		if err != nil {
-			fatal(fmt.Sprintf("read CA cert: %v", err))
-		}
-	}
-
-	res, err := poller.Register(*central, agentName, hostname, caPEM)
+	cfg, err := winagentcore.RegisterAndSave(*central, *caPath, *name)
 	if err != nil {
 		fatal(fmt.Sprintf("registration failed: %v", err))
 	}
-
-	cfg := config{
-		CentralURL: *central,
-		Token:      res.Token,
-		AgentID:    res.AgentID,
-		Name:       agentName,
-		Hostname:   hostname,
-		CACertPEM:  string(caPEM),
-	}
-	if err := saveConfig(cfg); err != nil {
-		fatal(fmt.Sprintf("save config: %v", err))
-	}
-	fmt.Printf("Registrado com sucesso.\n  Central:   %s\n  Agent ID:  %s\n  Nome:      %s\n  Hostname:  %s\n  Config:    %s\n", *central, res.AgentID, agentName, hostname, configPath())
+	fmt.Printf("Registrado com sucesso.\n  Central:   %s\n  Agent ID:  %s\n  Nome:      %s\n  Hostname:  %s\n  Config:    %s\n", cfg.CentralURL, cfg.AgentID, cfg.Name, cfg.Hostname, winagentcore.ConfigPath())
 	fmt.Println(`Rode "gobackup-winagent serve" para começar a reportar status ao Central.`)
 }
 
 func cmdUnregister() {
-	cfg, err := loadConfig()
+	cfg, err := winagentcore.LoadConfig()
 	if err != nil {
 		fatal(err.Error())
 	}
-	if cfg.CentralURL == "" && cfg.Token == "" {
+	if !cfg.IsConfigured() {
 		fmt.Println("Este agente já não está registrado em nenhum Central.")
 		return
 	}
-	if err := saveConfig(config{}); err != nil {
+	if err := winagentcore.Unregister(); err != nil {
 		fatal(fmt.Sprintf("clear config: %v", err))
 	}
 	fmt.Println("Desregistrado deste Central (local). O registro no Central não foi removido —")
@@ -215,15 +130,15 @@ func cmdUnregister() {
 }
 
 func cmdStatus() {
-	cfg, err := loadConfig()
+	cfg, err := winagentcore.LoadConfig()
 	if err != nil {
 		fatal(err.Error())
 	}
-	if cfg.CentralURL == "" || cfg.Token == "" {
+	if !cfg.IsConfigured() {
 		fmt.Println("Não configurado. Rode \"gobackup-winagent register -central <url>\" primeiro.")
 		return
 	}
-	fmt.Printf("Central:   %s\nAgent ID:  %s\nNome:      %s\nHostname:  %s\nConfig:    %s\n\n", cfg.CentralURL, cfg.AgentID, cfg.Name, cfg.Hostname, configPath())
+	fmt.Printf("Central:   %s\nAgent ID:  %s\nNome:      %s\nHostname:  %s\nConfig:    %s\n\n", cfg.CentralURL, cfg.AgentID, cfg.Name, cfg.Hostname, winagentcore.ConfigPath())
 
 	client, err := poller.NewClient(cfg.CentralURL, cfg.Token, []byte(cfg.CACertPEM))
 	if err != nil {
@@ -243,64 +158,19 @@ func cmdServe(args []string) {
 	fs.Parse(args)
 
 	fmt.Printf("gobackup-winagent: iniciando heartbeat a cada %s (Ctrl+C para parar)\n", interval.String())
-	ticker := time.NewTicker(*interval)
-	defer ticker.Stop()
-
-	store := NewJobStore()
-	registry := newProgressRegistry()
-	exec := &Executor{Store: store, Registry: registry}
-	var pendingResults []poller.CommandResult
-
-	var lastKey string
-	var client *poller.Client
-
-	for {
-		cfg, err := loadConfig()
-		if err != nil {
-			fmt.Printf("[%s] erro lendo config: %v\n", time.Now().Format(time.RFC3339), err)
-		} else if cfg.CentralURL == "" || cfg.Token == "" {
-			fmt.Printf("[%s] não registrado — rode \"gobackup-winagent register -central <url>\"\n", time.Now().Format(time.RFC3339))
-		} else {
-			key := cfg.CentralURL + "|" + cfg.Token + "|" + cfg.CACertPEM
-			if client == nil || key != lastKey {
-				client, err = poller.NewClient(cfg.CentralURL, cfg.Token, []byte(cfg.CACertPEM))
-				if err != nil {
-					fmt.Printf("[%s] erro criando cliente: %v\n", time.Now().Format(time.RFC3339), err)
-					client = nil
-				}
-				lastKey = key
-			}
-			if client != nil {
-				jobs, _ := store.List()
-				jobInfos := make([]poller.JobInfo, 0, len(jobs))
-				for _, j := range jobs {
-					jobInfos = append(jobInfos, poller.JobInfo{ID: j.ID, Name: j.Name, Kind: j.Kind, Cron: j.Cron, Enabled: j.Enabled, LastStatus: j.LastStatus})
-				}
-				running := make([]poller.RunningInfo, 0)
-				for jobID, s := range registry.snapshot() {
-					running = append(running, poller.RunningInfo{JobID: jobID, Status: s.Status, Percent: s.Percent, Message: s.Message})
-				}
-
-				resp, err := client.Poll("idle", pendingResults, jobInfos, running)
-				pendingResults = nil
-				if err != nil {
-					fmt.Printf("[%s] heartbeat falhou: %v\n", time.Now().Format(time.RFC3339), err)
-				} else {
-					if len(resp.Commands) > 0 {
-						fmt.Printf("[%s] heartbeat OK — executando %d comando(s)\n", time.Now().Format(time.RFC3339), len(resp.Commands))
-					}
-					for _, cmd := range resp.Commands {
-						fmt.Printf("  comando %s (%s)\n", cmd.ID, cmd.Type)
-						pendingResults = append(pendingResults, exec.Execute(cmd))
-					}
-					if len(resp.Commands) == 0 {
-						fmt.Printf("[%s] heartbeat OK\n", time.Now().Format(time.RFC3339))
-					}
-				}
-			}
+	winagentcore.RunLoop(*interval, func(r winagentcore.TickResult) {
+		ts := time.Now().Format(time.RFC3339)
+		switch {
+		case !r.Configured:
+			fmt.Printf("[%s] não registrado — rode \"gobackup-winagent register -central <url>\"\n", ts)
+		case r.Err != nil:
+			fmt.Printf("[%s] heartbeat falhou: %v\n", ts, r.Err)
+		case r.CommandsCount > 0:
+			fmt.Printf("[%s] heartbeat OK — executou %d comando(s)\n", ts, r.CommandsCount)
+		default:
+			fmt.Printf("[%s] heartbeat OK\n", ts)
 		}
-		<-ticker.C
-	}
+	}, nil)
 }
 
 // --- Local CLI commands, usable without any Central at all — handy for
@@ -322,9 +192,9 @@ func cmdLocalCreateJob(args []string) {
 	if *name == "" || *source == "" || *dest == "" {
 		fatal("-name, -source e -dest são obrigatórios")
 	}
-	store := NewJobStore()
-	j, err := store.Create(Job{
-		Kind: "files", Name: *name, Source: normalizeWindowsPath(*source), Dest: normalizeDestPath(*dest, *destType), DestType: *destType, DeleteExtraneous: *deleteExtraneous,
+	store := winagentcore.NewJobStore()
+	j, err := store.Create(winagentcore.Job{
+		Kind: "files", Name: *name, Source: winagentcore.NormalizeWindowsPath(*source), Dest: winagentcore.NormalizeDestPath(*dest, *destType), DestType: *destType, DeleteExtraneous: *deleteExtraneous,
 		SSHHost: *sshHost, SSHPort: *sshPort, SSHUser: *sshUser, SSHKey: *sshKey,
 	})
 	if err != nil {
@@ -354,11 +224,11 @@ func cmdLocalCreateDBJob(args []string) {
 	if *name == "" || *engine == "" || *dest == "" {
 		fatal("-name, -engine e -dest são obrigatórios")
 	}
-	store := NewJobStore()
-	j, err := store.Create(Job{
+	store := winagentcore.NewJobStore()
+	j, err := store.Create(winagentcore.Job{
 		Kind: "database", Name: *name, Engine: *engine, Host: *host, Port: *port, Username: *username,
-		Database: *database, SQLitePath: normalizeWindowsPath(*sqlitePath), Compression: *compression,
-		Dest: normalizeDestPath(*dest, *destType), DestType: *destType, SSHHost: *sshHost, SSHPort: *sshPort, SSHUser: *sshUser, SSHKey: *sshKey,
+		Database: *database, SQLitePath: winagentcore.NormalizeWindowsPath(*sqlitePath), Compression: *compression,
+		Dest: winagentcore.NormalizeDestPath(*dest, *destType), DestType: *destType, SSHHost: *sshHost, SSHPort: *sshPort, SSHUser: *sshUser, SSHKey: *sshKey,
 		RetentionDays: *retention,
 	})
 	if err != nil {
@@ -368,7 +238,7 @@ func cmdLocalCreateDBJob(args []string) {
 }
 
 func cmdLocalListJobs() {
-	store := NewJobStore()
+	store := winagentcore.NewJobStore()
 	jobs, err := store.List()
 	if err != nil {
 		fatal(err.Error())
@@ -395,7 +265,7 @@ func cmdLocalRunJob(args []string) {
 	name := fs.String("name", "", "job name")
 	password := fs.String("password", "", "DB password (database jobs only — never saved)")
 	fs.Parse(args)
-	store := NewJobStore()
+	store := winagentcore.NewJobStore()
 	target, found, err := store.GetByName(*name)
 	if err != nil {
 		fatal(err.Error())
@@ -406,7 +276,7 @@ func cmdLocalRunJob(args []string) {
 
 	if target.Kind == "database" {
 		fmt.Printf("Executando backup de banco %q (%s) -> %s ...\n", target.Name, target.Engine, target.Dest)
-		result, err := RunDBJob(context.Background(), target, *password)
+		result, err := winagentcore.RunDBJob(context.Background(), target, *password)
 		if err != nil {
 			_ = store.UpdateStatus(target.ID, "failed", err.Error(), 0, 0)
 			fatal(err.Error())
@@ -424,11 +294,11 @@ func cmdLocalRunJob(args []string) {
 	progress := func(done, total int, bytes int64, file string) {
 		fmt.Printf("\r%d/%d arquivos, %d bytes — %s          ", done, total, bytes, file)
 	}
-	var result MirrorResult
+	var result winagentcore.MirrorResult
 	if target.DestType == "ssh" {
-		result, err = MirrorSSH(target.Source, target.SSHHost, target.SSHPort, target.SSHUser, target.SSHKey, target.Dest, target.DeleteExtraneous, progress)
+		result, err = winagentcore.MirrorSSH(target.Source, target.SSHHost, target.SSHPort, target.SSHUser, target.SSHKey, target.Dest, target.DeleteExtraneous, progress)
 	} else {
-		result, err = Mirror(target.Source, target.Dest, target.DeleteExtraneous, progress)
+		result, err = winagentcore.Mirror(target.Source, target.Dest, target.DeleteExtraneous, progress)
 	}
 	fmt.Println()
 	if err != nil {
@@ -443,7 +313,7 @@ func cmdLocalDeleteJob(args []string) {
 	fs := flag.NewFlagSet("delete-job", flag.ExitOnError)
 	name := fs.String("name", "", "job name")
 	fs.Parse(args)
-	store := NewJobStore()
+	store := winagentcore.NewJobStore()
 	jobs, err := store.List()
 	if err != nil {
 		fatal(err.Error())

@@ -6,7 +6,7 @@
 // (internal/webui.CentralRunner) work against this Windows agent
 // completely unmodified; Central has no idea the agent on the other end
 // isn't the Linux one.
-package main
+package winagentcore
 
 import (
 	"context"
@@ -19,31 +19,31 @@ import (
 
 // progress registry — mirrors internal/progress.Registry's job on Linux,
 // just local to this process since there's no shared web UI reading it.
-type runState struct {
+type RunState struct {
 	Status  string
 	Percent int
 	Message string
 }
 
-type progressRegistry struct {
+type ProgressRegistry struct {
 	mu sync.Mutex
-	m  map[string]runState
+	m  map[string]RunState
 }
 
-func newProgressRegistry() *progressRegistry {
-	return &progressRegistry{m: map[string]runState{}}
+func NewProgressRegistry() *ProgressRegistry {
+	return &ProgressRegistry{m: map[string]RunState{}}
 }
 
-func (p *progressRegistry) set(jobID string, s runState) {
+func (p *ProgressRegistry) Set(jobID string, s RunState) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.m[jobID] = s
 }
 
-func (p *progressRegistry) snapshot() map[string]runState {
+func (p *ProgressRegistry) Snapshot() map[string]RunState {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	out := make(map[string]runState, len(p.m))
+	out := make(map[string]RunState, len(p.m))
 	for k, v := range p.m {
 		out[k] = v
 	}
@@ -52,7 +52,7 @@ func (p *progressRegistry) snapshot() map[string]runState {
 
 type Executor struct {
 	Store    *JobStore
-	Registry *progressRegistry
+	Registry *ProgressRegistry
 }
 
 func payloadStr(payload map[string]any, key string) string {
@@ -89,8 +89,8 @@ func jobFromFilePayload(payload map[string]any) Job {
 	return Job{
 		Kind:             "files",
 		Name:             payloadStr(payload, "name"),
-		Source:           normalizeWindowsPath(payloadStr(payload, "source_path")),
-		Dest:             normalizeDestPath(payloadStr(payload, "destination_path"), payloadStr(payload, "destination_type")),
+		Source:           NormalizeWindowsPath(payloadStr(payload, "source_path")),
+		Dest:             NormalizeDestPath(payloadStr(payload, "destination_path"), payloadStr(payload, "destination_type")),
 		DestType:         defaultStr(payloadStr(payload, "destination_type"), "local"),
 		DeleteExtraneous: payloadBool(payload, "delete_extraneous", false),
 		SSHHost:          payloadStr(payload, "ssh_host"),
@@ -111,9 +111,9 @@ func jobFromDBPayload(payload map[string]any) Job {
 		Port:          payloadInt(payload, "port", 0),
 		Username:      payloadStr(payload, "username"),
 		Database:      payloadStr(payload, "database"),
-		SQLitePath:    normalizeWindowsPath(payloadStr(payload, "sqlite_path")),
+		SQLitePath:    NormalizeWindowsPath(payloadStr(payload, "sqlite_path")),
 		Compression:   defaultStr(payloadStr(payload, "compression"), "gzip"),
-		Dest:          normalizeDestPath(payloadStr(payload, "destination_path"), payloadStr(payload, "destination_type")),
+		Dest:          NormalizeDestPath(payloadStr(payload, "destination_path"), payloadStr(payload, "destination_type")),
 		DestType:      defaultStr(payloadStr(payload, "destination_type"), "local"),
 		SSHHost:       payloadStr(payload, "ssh_host"),
 		SSHPort:       payloadInt(payload, "ssh_port", 22),
@@ -125,15 +125,15 @@ func jobFromDBPayload(payload map[string]any) Job {
 	}
 }
 
-// normalizeDestPath only runs the Windows path fixups for a local/NAS
+// NormalizeDestPath only runs the Windows path fixups for a local/NAS
 // destination — an "ssh" destination's path is a REMOTE (typically Linux)
 // path and must be left exactly as typed (forward slashes, no drive
 // letter concept), not mangled by Windows-specific normalization.
-func normalizeDestPath(path, destType string) string {
+func NormalizeDestPath(path, destType string) string {
 	if destType == "ssh" || path == "" {
 		return path
 	}
-	return normalizeWindowsPath(path)
+	return NormalizeWindowsPath(path)
 }
 
 func fileJobResult(j Job) map[string]any {
@@ -281,7 +281,7 @@ func defaultStr(v, def string) string {
 // a multi-minute backup never blocks the 1s heartbeat tick, the same
 // design the Linux agent's jobexec.Engine uses.
 func (e *Executor) runFileJob(j Job) {
-	e.Registry.set(j.ID, runState{Status: "running", Percent: 0, Message: "iniciando..."})
+	e.Registry.Set(j.ID, RunState{Status: "running", Percent: 0, Message: "iniciando..."})
 
 	lastUpdate := time.Now()
 	progress := func(filesDone, filesTotal int, bytesDone int64, currentFile string) {
@@ -293,7 +293,7 @@ func (e *Executor) runFileJob(j Job) {
 		if filesTotal > 0 {
 			pct = filesDone * 100 / filesTotal
 		}
-		e.Registry.set(j.ID, runState{Status: "running", Percent: pct, Message: fmt.Sprintf("%d/%d arquivos — %s", filesDone, filesTotal, currentFile)})
+		e.Registry.Set(j.ID, RunState{Status: "running", Percent: pct, Message: fmt.Sprintf("%d/%d arquivos — %s", filesDone, filesTotal, currentFile)})
 	}
 
 	var result MirrorResult
@@ -305,7 +305,7 @@ func (e *Executor) runFileJob(j Job) {
 	}
 
 	if err != nil {
-		e.Registry.set(j.ID, runState{Status: "failed", Percent: -1, Message: err.Error()})
+		e.Registry.Set(j.ID, RunState{Status: "failed", Percent: -1, Message: err.Error()})
 		_ = e.Store.UpdateStatus(j.ID, "failed", err.Error(), result.BytesCopied, result.FilesCopied)
 		return
 	}
@@ -314,7 +314,7 @@ func (e *Executor) runFileJob(j Job) {
 	if result.FilesDeleted > 0 {
 		msg += fmt.Sprintf(", %d removido(s) do destino", result.FilesDeleted)
 	}
-	e.Registry.set(j.ID, runState{Status: "success", Percent: 100, Message: msg})
+	e.Registry.Set(j.ID, RunState{Status: "success", Percent: 100, Message: msg})
 	_ = e.Store.UpdateStatus(j.ID, "success", "", result.BytesCopied, result.FilesCopied)
 }
 
@@ -323,14 +323,14 @@ func (e *Executor) runFileJob(j Job) {
 // jobs.json (matching the Linux agent's behavior for password-protected
 // engines).
 func (e *Executor) runDBJob(j Job, password string) {
-	e.Registry.set(j.ID, runState{Status: "running", Percent: 0, Message: "gerando dump..."})
+	e.Registry.Set(j.ID, RunState{Status: "running", Percent: 0, Message: "gerando dump..."})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 	defer cancel()
 
 	result, err := RunDBJob(ctx, j, password)
 	if err != nil {
-		e.Registry.set(j.ID, runState{Status: "failed", Percent: -1, Message: err.Error()})
+		e.Registry.Set(j.ID, RunState{Status: "failed", Percent: -1, Message: err.Error()})
 		_ = e.Store.UpdateStatus(j.ID, "failed", err.Error(), 0, 0)
 		return
 	}
@@ -339,6 +339,6 @@ func (e *Executor) runDBJob(j Job, password string) {
 	if result.Deleted > 0 {
 		msg += fmt.Sprintf(", %d backup(s) antigo(s) removido(s) pela retenção", result.Deleted)
 	}
-	e.Registry.set(j.ID, runState{Status: "success", Percent: 100, Message: msg})
+	e.Registry.Set(j.ID, RunState{Status: "success", Percent: 100, Message: msg})
 	_ = e.Store.UpdateStatus(j.ID, "success", "", result.BytesWritten, 1)
 }

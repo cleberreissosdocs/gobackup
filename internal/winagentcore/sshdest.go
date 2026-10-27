@@ -4,7 +4,7 @@
 // external ssh.exe/scp.exe/rsync.exe being installed on the Windows box,
 // unlike the Linux agent's internal/backup package which shells out to
 // rsync over ssh.
-package main
+package winagentcore
 
 import (
 	"fmt"

@@ -6,7 +6,7 @@
 // Linux agent's single `jobs` table does — this keeps get/update/delete/
 // run_job (which only carry a job_id, no kind) unambiguous: look the job
 // up once, branch on .Kind.
-package main
+package winagentcore
 
 import (
 	"encoding/json"

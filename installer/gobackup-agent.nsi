@@ -1,0 +1,86 @@
+; GoBackup Windows Agent — installer
+; Builds a single setup.exe that installs:
+;   - gobackup-winagent-tray.exe (desktop app: tray icon + local config page)
+;   - gobackup-winagent.exe      (CLI, for headless/server use under a
+;                                 Scheduled Task — see README)
+; and makes the tray app launch automatically at every login.
+;
+; Build (from Linux or Windows, with makensis installed):
+;   makensis installer/gobackup-agent.nsi
+
+!define APP_NAME "GoBackup Agent"
+!define APP_DIR "GoBackup"
+!define PUBLISHER "GoBackup"
+!define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\GoBackupAgent"
+
+Name "${APP_NAME}"
+OutFile "gobackup-agent-setup.exe"
+InstallDir "$PROGRAMFILES64\${APP_DIR}"
+InstallDirRegKey HKLM "Software\${APP_DIR}" "InstallDir"
+RequestExecutionLevel admin
+SetCompressor /SOLID lzma
+
+!include "MUI2.nsh"
+
+!define MUI_ABORTWARNING
+!define MUI_ICON "..\cmd\winagent-tray\icons\green.ico"
+!define MUI_UNICON "..\cmd\winagent-tray\icons\red.ico"
+
+!insertmacro MUI_PAGE_WELCOME
+!insertmacro MUI_PAGE_DIRECTORY
+!insertmacro MUI_PAGE_INSTFILES
+!define MUI_FINISHPAGE_RUN "$INSTDIR\gobackup-winagent-tray.exe"
+!define MUI_FINISHPAGE_RUN_TEXT "Abrir o GoBackup agora (ícone na bandeja)"
+!insertmacro MUI_PAGE_FINISH
+
+!insertmacro MUI_UNPAGE_CONFIRM
+!insertmacro MUI_UNPAGE_INSTFILES
+
+!insertmacro MUI_LANGUAGE "PortugueseBR"
+
+Section "Instalar" SEC01
+    SetOutPath "$INSTDIR"
+    File "gobackup-winagent.exe"
+    File "gobackup-winagent-tray.exe"
+
+    ; Autostart: launch the tray app for every user who logs in. HKLM Run
+    ; (not HKCU) so it works regardless of which user installed it.
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "GoBackupAgent" '"$INSTDIR\gobackup-winagent-tray.exe"'
+
+    ; Start Menu shortcut
+    CreateDirectory "$SMPROGRAMS\${APP_NAME}"
+    CreateShortCut "$SMPROGRAMS\${APP_NAME}\GoBackup Agent.lnk" "$INSTDIR\gobackup-winagent-tray.exe"
+    CreateShortCut "$SMPROGRAMS\${APP_NAME}\Desinstalar.lnk" "$INSTDIR\uninstall.exe"
+
+    ; Uninstall registration (shows up in "Aplicativos e recursos")
+    WriteRegStr HKLM "${UNINST_KEY}" "DisplayName" "${APP_NAME}"
+    WriteRegStr HKLM "${UNINST_KEY}" "UninstallString" '"$INSTDIR\uninstall.exe"'
+    WriteRegStr HKLM "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
+    WriteRegStr HKLM "${UNINST_KEY}" "Publisher" "${PUBLISHER}"
+    WriteRegStr HKLM "Software\${APP_DIR}" "InstallDir" "$INSTDIR"
+
+    WriteUninstaller "$INSTDIR\uninstall.exe"
+SectionEnd
+
+Section "Uninstall"
+    ; Stop a running tray instance before removing its file (Windows
+    ; refuses to delete the .exe of a process that's still executing).
+    nsExec::Exec 'taskkill /F /IM gobackup-winagent-tray.exe'
+
+    DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "GoBackupAgent"
+    DeleteRegKey HKLM "${UNINST_KEY}"
+    DeleteRegKey HKLM "Software\${APP_DIR}"
+
+    Delete "$INSTDIR\gobackup-winagent.exe"
+    Delete "$INSTDIR\gobackup-winagent-tray.exe"
+    Delete "$INSTDIR\uninstall.exe"
+    RMDir "$INSTDIR"
+
+    Delete "$SMPROGRAMS\${APP_NAME}\GoBackup Agent.lnk"
+    Delete "$SMPROGRAMS\${APP_NAME}\Desinstalar.lnk"
+    RMDir "$SMPROGRAMS\${APP_NAME}"
+
+    ; Deliberately NOT removing C:\ProgramData\GoBackup (config.json/
+    ; jobs.json) — reinstalling should pick the existing registration back
+    ; up rather than forcing the user to register again.
+SectionEnd

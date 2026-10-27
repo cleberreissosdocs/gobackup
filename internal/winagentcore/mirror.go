@@ -10,7 +10,7 @@
 // compiles and runs correctly on Linux/macOS — useful for testing this
 // logic without a Windows box at all, even though the only real deployment
 // target is Windows.
-package main
+package winagentcore
 
 import (
 	"fmt"

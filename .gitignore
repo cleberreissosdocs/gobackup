@@ -16,3 +16,4 @@ backups/
 /gobackup-agent
 /gobackup-central
 /tmp/
+installer/*.exe
