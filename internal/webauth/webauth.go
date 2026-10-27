@@ -169,6 +169,17 @@ func (m *Manager) CurrentUser(r *http.Request) string {
 	return s.email
 }
 
+// CurrentUserID returns the logged-in user's ID, or uuid.Nil + false if not
+// authenticated — used by the "Usuários" screen to stop a user deleting or
+// demoting their own account.
+func (m *Manager) CurrentUserID(r *http.Request) (uuid.UUID, bool) {
+	s, ok := m.currentSession(r)
+	if !ok {
+		return uuid.Nil, false
+	}
+	return s.userID, true
+}
+
 // CSRFToken returns the current session's CSRF token, to be embedded as a
 // hidden field in every state-changing form.
 func (m *Manager) CSRFToken(r *http.Request) string {

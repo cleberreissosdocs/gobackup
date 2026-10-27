@@ -96,6 +96,98 @@ func (s *Store) GetUserPasswordHash(ctx context.Context, email string) (uuid.UUI
 	return id, hash, nil
 }
 
+// ListUsers returns every user account, newest first — backs the "Usuários"
+// admin screen shared by the agent and central web UIs.
+func (s *Store) ListUsers(ctx context.Context) ([]core.User, error) {
+	rows, err := s.Pool.Query(ctx, `SELECT id, tenant_id, email, role, created_at FROM users ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("list users: %w", err)
+	}
+	defer rows.Close()
+	var out []core.User
+	for rows.Next() {
+		var u core.User
+		var tenantID *uuid.UUID
+		var role string
+		if err := rows.Scan(&u.ID, &tenantID, &u.Email, &role, &u.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan user: %w", err)
+		}
+		if tenantID != nil {
+			u.TenantID = *tenantID
+		}
+		u.Role = core.UserRole(role)
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// GetUserByID looks up a single user's details (no password hash) for the
+// edit-user form.
+func (s *Store) GetUserByID(ctx context.Context, id uuid.UUID) (core.User, error) {
+	var u core.User
+	var tenantID *uuid.UUID
+	var role string
+	err := s.Pool.QueryRow(ctx, `SELECT id, tenant_id, email, role, created_at FROM users WHERE id = $1`, id).
+		Scan(&u.ID, &tenantID, &u.Email, &role, &u.CreatedAt)
+	if err != nil {
+		return core.User{}, fmt.Errorf("user not found: %w", err)
+	}
+	if tenantID != nil {
+		u.TenantID = *tenantID
+	}
+	u.Role = core.UserRole(role)
+	return u, nil
+}
+
+// CountAdmins is used to block removing/demoting the last remaining admin
+// account, which would otherwise lock every user out of user management.
+func (s *Store) CountAdmins(ctx context.Context) (int, error) {
+	var n int
+	err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM users WHERE role = 'admin'`).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count admins: %w", err)
+	}
+	return n, nil
+}
+
+// UpdateUserRole changes an existing user's access level.
+func (s *Store) UpdateUserRole(ctx context.Context, id uuid.UUID, role core.UserRole) error {
+	ct, err := s.Pool.Exec(ctx, `UPDATE users SET role = $2 WHERE id = $1`, id, string(role))
+	if err != nil {
+		return fmt.Errorf("update user role: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return fmt.Errorf("user not found")
+	}
+	return nil
+}
+
+// UpdateUserPassword sets a new bcrypt hash for an existing user (password
+// reset from the edit-user form — leaving the field blank there skips this
+// call entirely, so the current password is kept).
+func (s *Store) UpdateUserPassword(ctx context.Context, id uuid.UUID, passwordHash string) error {
+	ct, err := s.Pool.Exec(ctx, `UPDATE users SET password_hash = $2 WHERE id = $1`, id, passwordHash)
+	if err != nil {
+		return fmt.Errorf("update user password: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return fmt.Errorf("user not found")
+	}
+	return nil
+}
+
+// DeleteUser removes a user account permanently.
+func (s *Store) DeleteUser(ctx context.Context, id uuid.UUID) error {
+	ct, err := s.Pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete user: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return fmt.Errorf("user not found")
+	}
+	return nil
+}
+
 // CreateFileJob inserts (or reuses, by name) a job_kind=files backup job,
 // persisting the full destination definition (not just source_path) so the
 // job can be re-run later from "Tarefas" without resubmitting the form.

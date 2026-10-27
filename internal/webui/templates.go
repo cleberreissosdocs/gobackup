@@ -283,7 +283,7 @@ small { color: var(--gb-text-muted); }
 <header>
   <div><a href="/">GoBackup</a></div>
   <div>
-    {{if .User}}{{if .ShowSettings}}<a href="/settings">Configurações</a>{{end}}{{.User}} — <form method="post" action="/logout" style="display:inline"><button type="submit">Sair</button></form>{{end}}
+    {{if .User}}<a href="/users">Usuários</a> {{if .ShowSettings}}<a href="/settings">Configurações</a>{{end}}{{.User}} — <form method="post" action="/logout" style="display:inline"><button type="submit">Sair</button></form>{{end}}
   </div>
 </header>
 <main>

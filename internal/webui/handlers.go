@@ -45,6 +45,13 @@ func (s *Site) Mount(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/cancel", s.Auth.RequireLoginAndCSRF(s.handleCancelJob))
 	mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/pause", s.Auth.RequireLoginAndCSRF(s.handlePauseJob))
 	mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/resume", s.Auth.RequireLoginAndCSRF(s.handleResumeJob))
+
+	mux.HandleFunc("GET /users", s.Auth.RequireLogin(s.handleUsersList))
+	mux.HandleFunc("GET /users/new", s.Auth.RequireLogin(s.handleNewUserForm))
+	mux.HandleFunc("POST /users/new", s.Auth.RequireLoginAndCSRF(s.handleCreateUser))
+	mux.HandleFunc("GET /users/{userID}/edit", s.Auth.RequireLogin(s.handleEditUserForm))
+	mux.HandleFunc("POST /users/{userID}/edit", s.Auth.RequireLoginAndCSRF(s.handleUpdateUser))
+	mux.HandleFunc("POST /users/{userID}/delete", s.Auth.RequireLoginAndCSRF(s.handleDeleteUser))
 }
 
 func (s *Site) handleLoginForm(w http.ResponseWriter, r *http.Request) {

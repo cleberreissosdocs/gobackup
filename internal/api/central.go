@@ -387,11 +387,12 @@ var notificationsTmpl = template.Must(template.New("notifications").Parse(`<!doc
 <div style="display:flex; align-items:center; gap:1.25rem;">
   <a href="/notifications">Canais de notificação</a>
   <a href="/dashboard">Dashboard</a>
+  <a href="/users">Usuários</a>
   <form class="logout" method="post" action="/logout"><button type="submit">Sair</button></form>
-</div>
-</nav>
-<div id="gb-content">
-<h1>Canais de notificação</h1>
+  </div>
+  </nav>
+  <div id="gb-content">
+  <h1>Canais de notificação</h1>
 {{if .Message}}<p class="notice">{{.Message}}</p>{{end}}
 <form method="post" action="/notifications">
   <input type="hidden" name="csrf_token" value="{{.CSRF}}">
@@ -491,11 +492,12 @@ tr.gb-row-offline td { color: var(--gb-text-faint); }
 <div style="display:flex; align-items:center; gap:1.25rem;">
   <a href="/notifications">Canais de notificação</a>
   <a href="/dashboard">Dashboard</a>
+  <a href="/users">Usuários</a>
   <form class="logout" method="post" action="/logout"><button type="submit">Sair</button></form>
-</div>
-</nav>
-<div id="gb-content">
-<h1>Status dos servidores</h1>
+  </div>
+  </nav>
+  <div id="gb-content">
+  <h1>Status dos servidores</h1>
 <div class="gb-card">
 <table>
 <tr><th>Agente</th><th>Hostname</th><th>Status</th><th>Último heartbeat</th><th>Saúde</th><th></th></tr>
@@ -507,7 +509,7 @@ tr.gb-row-offline td { color: var(--gb-text-faint); }
   <td>{{.LastSeen}}</td>
   <td>{{if .HasFailure}}<span class="gb-health-dot" style="color: var(--gb-danger);" title="alguma tarefa deste agente falhou na última execução">&#9679;</span>{{else}}<span class="gb-health-dot" style="color: var(--gb-success);" title="nenhuma falha nas últimas execuções">&#9679;</span>{{end}}</td>
   <td style="white-space:nowrap;">
-    <a href="/agents/{{.ID}}/">administrar</a><span style="display:inline-block; width:2rem;"></span><a href="/agents/{{.ID}}/rename">renomear</a><span style="display:inline-block; width:2rem;"></span><span style="border-left:1px solid var(--gb-border); padding-left:1rem;">
+    {{if eq .Status "online"}}<a href="/agents/{{.ID}}/">administrar</a>{{else}}<span class="gb-disabled-link" title="agente offline — não é possível administrar remotamente agora">administrar</span>{{end}}<span style="display:inline-block; width:2rem;"></span><a href="/agents/{{.ID}}/rename">renomear</a><span style="display:inline-block; width:2rem;"></span><span style="border-left:1px solid var(--gb-border); padding-left:1rem;">
     <form method="post" action="/agents/{{.ID}}/delete" style="display:inline" onsubmit="return confirm('Apagar o agente \'{{.Name}}\' do Central? O agente continua rodando no servidor dele, mas some deste painel e precisa ser registrado de novo (tela Configurações do agente) para reaparecer.');">
       <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
       <button type="submit" class="secondary">Apagar</button>
