@@ -71,7 +71,7 @@ func (e *Engine) run(jobID uuid.UUID, kind string, trigger core.ExecutionTrigger
 func (e *Engine) runFile(ctx context.Context, jobID uuid.UUID, jobIDStr string, trigger core.ExecutionTrigger, onStart func(*os.Process)) {
 	d, err := e.Store.GetFileJobDetails(ctx, jobID)
 	if err != nil {
-		e.fail(jobIDStr, err)
+		e.fail(ctx, jobIDStr, err)
 		return
 	}
 	var destination backup.Destination
@@ -83,13 +83,13 @@ func (e *Engine) runFile(ctx context.Context, jobID uuid.UUID, jobIDStr string, 
 	case "ssh":
 		destination = backup.SSH(d.SSHHost, d.SSHPort, d.SSHUser, d.SSHKey, d.Dest)
 	default:
-		e.fail(jobIDStr, fmt.Errorf("tipo de destino não suportado: %s", d.DestType))
+		e.fail(ctx, jobIDStr, fmt.Errorf("tipo de destino não suportado: %s", d.DestType))
 		return
 	}
 
 	execID, err := e.Store.StartExecution(ctx, jobID, trigger)
 	if err != nil {
-		e.fail(jobIDStr, err)
+		e.fail(ctx, jobIDStr, err)
 		return
 	}
 
@@ -122,13 +122,13 @@ func (e *Engine) runFile(ctx context.Context, jobID uuid.UUID, jobIDStr string, 
 func (e *Engine) runDB(ctx context.Context, jobID uuid.UUID, jobIDStr string, trigger core.ExecutionTrigger, password string) {
 	d, err := e.Store.GetDBJobDetails(ctx, jobID)
 	if err != nil {
-		e.fail(jobIDStr, err)
+		e.fail(ctx, jobIDStr, err)
 		return
 	}
 
 	execID, err := e.Store.StartExecution(ctx, jobID, trigger)
 	if err != nil {
-		e.fail(jobIDStr, err)
+		e.fail(ctx, jobIDStr, err)
 		return
 	}
 	// Database dumps don't expose byte-level progress like rsync does, so
@@ -176,6 +176,10 @@ func (e *Engine) runDB(ctx context.Context, jobID uuid.UUID, jobIDStr string, tr
 	})
 }
 
-func (e *Engine) fail(jobIDStr string, err error) {
+func (e *Engine) fail(ctx context.Context, jobIDStr string, err error) {
+	if ctx.Err() == context.Canceled {
+		e.Registry.Set(jobIDStr, progress.State{Status: "cancelled", Percent: -1, Message: "cancelado pelo usuário"})
+		return
+	}
 	e.Registry.Set(jobIDStr, progress.State{Status: "failed", Percent: -1, Message: err.Error()})
 }

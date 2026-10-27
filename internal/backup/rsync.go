@@ -145,7 +145,15 @@ func Run(ctx context.Context, sourcePath string, dest Destination, backupType co
 	}
 	args = append(args, ensureTrailingSlash(sourcePath), target)
 
-	cmd := exec.CommandContext(ctx, "rsync", args...)
+	cmd := exec.Command("rsync", args...)
+	// New process group: rsync (even copying purely locally, no ssh)
+	// forks an internal sender/receiver pair, so killing only the PID Go
+	// tracks on Cancel would leave that child running and the parent as
+	// an unreaped zombie forever. setNewProcessGroup lets us signal the
+	// WHOLE group at once below (no-op stub on Windows -- this package
+	// only ever gets pulled into a Windows BUILD transitively, never
+	// actually run there).
+	setNewProcessGroup(cmd)
 	var out strings.Builder
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -159,6 +167,19 @@ func Run(ctx context.Context, sourcePath string, dest Destination, backupType co
 	if onStart != nil {
 		onStart(cmd.Process)
 	}
+
+	// ctx cancellation kills the entire process group (negative PID) —
+	// exec.CommandContext's default behavior only kills cmd.Process
+	// itself, which doesn't reach rsync's forked children.
+	killDone := make(chan struct{})
+	defer close(killDone)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = killProcessGroup(cmd.Process.Pid)
+		case <-killDone:
+		}
+	}()
 
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)

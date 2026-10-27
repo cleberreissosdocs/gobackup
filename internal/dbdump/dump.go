@@ -87,7 +87,7 @@ func Run(ctx context.Context, opts Options, destDir string, compression core.Com
 	var written int64
 	switch opts.Engine {
 	case core.EngineSQLite:
-		written, err = dumpSQLite(opts, writer)
+		written, err = dumpSQLite(ctx, opts, writer)
 	case core.EnginePostgreSQL:
 		written, err = dumpPostgres(ctx, opts, writer)
 	case core.EngineMySQL, core.EngineMariaDB:
@@ -135,7 +135,7 @@ func NamePrefix(opts Options) string {
 	return namePrefix(opts)
 }
 
-func dumpSQLite(opts Options, w io.Writer) (int64, error) {
+func dumpSQLite(ctx context.Context, opts Options, w io.Writer) (int64, error) {
 	if opts.SQLitePath == "" {
 		return 0, fmt.Errorf("sqlite_path is required")
 	}
@@ -144,7 +144,32 @@ func dumpSQLite(opts Options, w io.Writer) (int64, error) {
 		return 0, fmt.Errorf("open sqlite file: %w", err)
 	}
 	defer f.Close()
-	return io.Copy(w, f)
+	// Plain io.Copy would ignore Cancel entirely for a big SQLite file —
+	// copy in chunks and check ctx between them so a cancelled dump
+	// actually stops instead of running to completion regardless.
+	buf := make([]byte, 4*1024*1024)
+	var total int64
+	for {
+		select {
+		case <-ctx.Done():
+			return total, ctx.Err()
+		default:
+		}
+		n, rerr := f.Read(buf)
+		if n > 0 {
+			wn, werr := w.Write(buf[:n])
+			total += int64(wn)
+			if werr != nil {
+				return total, werr
+			}
+		}
+		if rerr == io.EOF {
+			return total, nil
+		}
+		if rerr != nil {
+			return total, rerr
+		}
+	}
 }
 
 func dumpPostgres(ctx context.Context, opts Options, w io.Writer) (int64, error) {

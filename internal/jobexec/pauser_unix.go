@@ -30,7 +30,11 @@ func (p *pauser) Pause() error {
 	if proc == nil {
 		return fmt.Errorf("a execução ainda está iniciando, tente novamente em instantes")
 	}
-	return proc.Signal(syscall.SIGSTOP)
+	// Negative PID targets the whole process group (see rsync.go's
+	// Setpgid) — rsync forks internal sender/receiver children even for
+	// a purely local copy, so signaling only the tracked PID would leave
+	// them running (and, for Resume, stuck waiting on a paused parent).
+	return syscall.Kill(-proc.Pid, syscall.SIGSTOP)
 }
 
 func (p *pauser) Resume() error {
@@ -40,5 +44,5 @@ func (p *pauser) Resume() error {
 	if proc == nil {
 		return fmt.Errorf("a execução ainda está iniciando, tente novamente em instantes")
 	}
-	return proc.Signal(syscall.SIGCONT)
+	return syscall.Kill(-proc.Pid, syscall.SIGCONT)
 }

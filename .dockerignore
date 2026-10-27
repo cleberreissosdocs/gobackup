@@ -6,3 +6,11 @@
 scripts/received_emails.txt
 *.log
 docker-compose.dev.yml
+# Runtime data volumes (mounted at /backups, /data, etc. in the running
+# container) -- never belongs in the build context. Without this, test
+# data accumulated on a deploy host (sometimes several GB) gets copied
+# into every image build and can exhaust the host's disk mid-build.
+backups/
+ssh-keys/
+*.sqlite
+*.db

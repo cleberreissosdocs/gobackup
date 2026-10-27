@@ -19,8 +19,15 @@ RUN apk add --no-cache \
       mariadb-client \
       sqlite \
       ca-certificates \
-      tzdata
+      tzdata \
+      tini
 COPY --from=build /out/gobackup-agent /usr/local/bin/gobackup-agent
 WORKDIR /data
-ENTRYPOINT ["gobackup-agent"]
+# tini as PID 1 (not gobackup-agent directly): a cancelled file-mirror job
+# kills rsync's whole process group (it forks internal sender/receiver
+# children even for a purely local copy), which re-parents any surviving
+# child to PID 1 -- without a real init there to reap it, it's left as a
+# permanent zombie. tini handles SIGCHLD/wait() for orphans correctly, the
+# way a container's PID 1 is supposed to.
+ENTRYPOINT ["tini", "--", "gobackup-agent"]
 CMD ["--help"]

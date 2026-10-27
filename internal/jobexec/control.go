@@ -103,6 +103,14 @@ func (e *Engine) Pause(jobIDStr string) error {
 	e.mu.Lock()
 	jc.paused = true
 	e.mu.Unlock()
+	// The copy loop's own progress callback drives Registry updates, but
+	// it stops firing entirely once the process is genuinely suspended —
+	// without this, the UI would be stuck showing "running" forever
+	// instead of "paused" until Resume lets at least one more file finish.
+	if s, ok := e.Registry.Get(jobIDStr); ok {
+		s.Status = "paused"
+		e.Registry.Set(jobIDStr, s)
+	}
 	return nil
 }
 
@@ -121,5 +129,9 @@ func (e *Engine) Resume(jobIDStr string) error {
 	e.mu.Lock()
 	jc.paused = false
 	e.mu.Unlock()
+	if s, ok := e.Registry.Get(jobIDStr); ok {
+		s.Status = "running"
+		e.Registry.Set(jobIDStr, s)
+	}
 	return nil
 }

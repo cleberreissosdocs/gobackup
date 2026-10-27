@@ -40,6 +40,13 @@ func (p *ProgressRegistry) Set(jobID string, s RunState) {
 	p.m[jobID] = s
 }
 
+func (p *ProgressRegistry) Get(jobID string) (RunState, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	s, ok := p.m[jobID]
+	return s, ok
+}
+
 func (p *ProgressRegistry) Snapshot() map[string]RunState {
 	p.mu.Lock()
 	defer p.mu.Unlock()

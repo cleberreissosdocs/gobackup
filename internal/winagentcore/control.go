@@ -127,6 +127,10 @@ func (e *Executor) PauseJob(jobID string) error {
 		return fmt.Errorf("pausar não é suportado para tarefas de banco de dados (risco de a conexão expirar e corromper o dump) — use cancelar")
 	}
 	jc.Pause.Pause()
+	if s, ok := e.Registry.Get(jobID); ok {
+		s.Status = "paused"
+		e.Registry.Set(jobID, s)
+	}
 	return nil
 }
 
@@ -140,5 +144,9 @@ func (e *Executor) ResumeJob(jobID string) error {
 		return fmt.Errorf("esta tarefa não suporta pausa")
 	}
 	jc.Pause.Resume()
+	if s, ok := e.Registry.Get(jobID); ok {
+		s.Status = "running"
+		e.Registry.Set(jobID, s)
+	}
 	return nil
 }
