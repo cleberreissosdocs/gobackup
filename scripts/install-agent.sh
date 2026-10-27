@@ -196,11 +196,11 @@ ok "Agente no ar"
 HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 [ -n "$HOST_IP" ] || HOST_IP="<ip-deste-servidor>"
 
+printf '\n'
+printf '%b\n' "${C_GREEN}=============================================================${C_RESET}"
+printf ' GoBackup Agente instalado com sucesso!\n'
+printf '%b\n' "${C_GREEN}=============================================================${C_RESET}"
 cat <<EOF
-
-${C_GREEN}=============================================================${C_RESET}
- GoBackup Agente instalado com sucesso!
-${C_GREEN}=============================================================${C_RESET}
 
   Acesse:     https://${HOST_IP}:${AGENT_WEB_PORT}/
   Usuário:    admin
