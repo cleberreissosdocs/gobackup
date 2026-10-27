@@ -96,7 +96,10 @@ if ! command -v openssl >/dev/null 2>&1 && [ ! -r /dev/urandom ]; then
   die "Preciso de 'openssl' ou /dev/urandom para gerar a senha do banco com segurança. Instale openssl e rode de novo."
 fi
 
-if ss -tln 2>/dev/null | grep -q ":${AGENT_WEB_PORT}\b"; then
+# Só faz sentido checar a porta numa instalação NOVA — numa reexecução sobre
+# uma instalação já existente, a porta já estará (corretamente) em uso pelo
+# próprio container deste agente.
+if [ ! -f "$INSTALL_DIR/$ENV_FILE" ] && ss -tln 2>/dev/null | grep -q ":${AGENT_WEB_PORT}\b"; then
   die "A porta ${AGENT_WEB_PORT} já está em uso neste servidor. Defina outra com AGENT_WEB_PORT=porta antes de rodar o script."
 fi
 
