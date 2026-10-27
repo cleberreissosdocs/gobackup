@@ -74,7 +74,7 @@ func (g *PauseGate) Wait(ctx context.Context) {
 // execution on this agent.
 type JobControl struct {
 	Cancel context.CancelFunc
-	Kind   string // "files" | "database"
+	Kind   string     // "files" | "database"
 	Pause  *PauseGate // non-nil only for file jobs
 }
 
