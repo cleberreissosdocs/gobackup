@@ -39,6 +39,15 @@ SetCompressor /SOLID lzma
 !insertmacro MUI_LANGUAGE "PortugueseBR"
 
 Section "Instalar" SEC01
+    ; Write to the native 64-bit registry view — without this, a 32-bit
+    ; NSIS installer gets silently redirected to
+    ; HKLM\SOFTWARE\WOW6432Node\... by WOW64. Windows autostart processing
+    ; happens to check that view too (by design, so 32-bit installers
+    ; still work), so this isn't a functional bug, but writing natively
+    ; avoids the split and keeps InstallDirRegKey reads consistent with
+    ; what Explorer/regedit show by default.
+    SetRegView 64
+
     SetOutPath "$INSTDIR"
     File "gobackup-winagent.exe"
     File "gobackup-winagent-tray.exe"
@@ -63,6 +72,7 @@ Section "Instalar" SEC01
 SectionEnd
 
 Section "Uninstall"
+    SetRegView 64
     ; Stop a running tray instance before removing its file (Windows
     ; refuses to delete the .exe of a process that's still executing).
     nsExec::Exec 'taskkill /F /IM gobackup-winagent-tray.exe'
