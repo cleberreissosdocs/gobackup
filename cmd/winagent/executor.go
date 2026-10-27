@@ -89,8 +89,8 @@ func jobFromFilePayload(payload map[string]any) Job {
 	return Job{
 		Kind:             "files",
 		Name:             payloadStr(payload, "name"),
-		Source:           payloadStr(payload, "source_path"),
-		Dest:             payloadStr(payload, "destination_path"),
+		Source:           normalizeWindowsPath(payloadStr(payload, "source_path")),
+		Dest:             normalizeDestPath(payloadStr(payload, "destination_path"), payloadStr(payload, "destination_type")),
 		DestType:         defaultStr(payloadStr(payload, "destination_type"), "local"),
 		DeleteExtraneous: payloadBool(payload, "delete_extraneous", false),
 		SSHHost:          payloadStr(payload, "ssh_host"),
@@ -111,9 +111,9 @@ func jobFromDBPayload(payload map[string]any) Job {
 		Port:          payloadInt(payload, "port", 0),
 		Username:      payloadStr(payload, "username"),
 		Database:      payloadStr(payload, "database"),
-		SQLitePath:    payloadStr(payload, "sqlite_path"),
+		SQLitePath:    normalizeWindowsPath(payloadStr(payload, "sqlite_path")),
 		Compression:   defaultStr(payloadStr(payload, "compression"), "gzip"),
-		Dest:          payloadStr(payload, "destination_path"),
+		Dest:          normalizeDestPath(payloadStr(payload, "destination_path"), payloadStr(payload, "destination_type")),
 		DestType:      defaultStr(payloadStr(payload, "destination_type"), "local"),
 		SSHHost:       payloadStr(payload, "ssh_host"),
 		SSHPort:       payloadInt(payload, "ssh_port", 22),
@@ -123,6 +123,17 @@ func jobFromDBPayload(payload map[string]any) Job {
 		Cron:          payloadStr(payload, "cron"),
 		Enabled:       payloadBool(payload, "enabled", true),
 	}
+}
+
+// normalizeDestPath only runs the Windows path fixups for a local/NAS
+// destination — an "ssh" destination's path is a REMOTE (typically Linux)
+// path and must be left exactly as typed (forward slashes, no drive
+// letter concept), not mangled by Windows-specific normalization.
+func normalizeDestPath(path, destType string) string {
+	if destType == "ssh" || path == "" {
+		return path
+	}
+	return normalizeWindowsPath(path)
 }
 
 func fileJobResult(j Job) map[string]any {

@@ -39,6 +39,9 @@ var bareDrive = regexp.MustCompile(`^([A-Za-z]:)\.?$`)
 // normalizeWindowsPath turns whatever shape the (Linux-authored) picker JS
 // sent into a real Windows path os.ReadDir can use.
 func normalizeWindowsPath(path string) string {
+	if path == "" {
+		return ""
+	}
 	path = leadingDriveSlash.ReplaceAllString(path, "$1")
 	// The JS always uses "/" as a separator; Windows paths themselves may
 	// already contain "\" (typed by the user, or round-tripped from a

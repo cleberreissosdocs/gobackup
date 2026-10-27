@@ -324,7 +324,7 @@ func cmdLocalCreateJob(args []string) {
 	}
 	store := NewJobStore()
 	j, err := store.Create(Job{
-		Kind: "files", Name: *name, Source: *source, Dest: *dest, DestType: *destType, DeleteExtraneous: *deleteExtraneous,
+		Kind: "files", Name: *name, Source: normalizeWindowsPath(*source), Dest: normalizeDestPath(*dest, *destType), DestType: *destType, DeleteExtraneous: *deleteExtraneous,
 		SSHHost: *sshHost, SSHPort: *sshPort, SSHUser: *sshUser, SSHKey: *sshKey,
 	})
 	if err != nil {
@@ -357,8 +357,8 @@ func cmdLocalCreateDBJob(args []string) {
 	store := NewJobStore()
 	j, err := store.Create(Job{
 		Kind: "database", Name: *name, Engine: *engine, Host: *host, Port: *port, Username: *username,
-		Database: *database, SQLitePath: *sqlitePath, Compression: *compression,
-		Dest: *dest, DestType: *destType, SSHHost: *sshHost, SSHPort: *sshPort, SSHUser: *sshUser, SSHKey: *sshKey,
+		Database: *database, SQLitePath: normalizeWindowsPath(*sqlitePath), Compression: *compression,
+		Dest: normalizeDestPath(*dest, *destType), DestType: *destType, SSHHost: *sshHost, SSHPort: *sshPort, SSHUser: *sshUser, SSHKey: *sshKey,
 		RetentionDays: *retention,
 	})
 	if err != nil {
