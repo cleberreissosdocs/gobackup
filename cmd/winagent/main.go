@@ -88,6 +88,14 @@ func main() {
 		cmdUnregister()
 	case "status":
 		cmdStatus()
+	case "create-job":
+		cmdLocalCreateJob(os.Args[2:])
+	case "list-jobs":
+		cmdLocalListJobs()
+	case "run-job":
+		cmdLocalRunJob(os.Args[2:])
+	case "delete-job":
+		cmdLocalDeleteJob(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -116,7 +124,20 @@ Usage:
 
   gobackup-winagent unregister
       Clears the local registration (purely local — does not remove this
-      agent from the Central's dashboard; use "Apagar" there for that).`)
+      agent from the Central's dashboard; use "Apagar" there for that).
+
+  gobackup-winagent create-job -name <nome> -source <dir> -dest <dir> [-delete-extraneous]
+      Creates a file-mirror job locally (no Central needed), for quick
+      testing on this machine.
+
+  gobackup-winagent list-jobs
+      Lists locally-known jobs and their last run status.
+
+  gobackup-winagent run-job -name <nome>
+      Runs one locally-known job immediately, printing live progress.
+
+  gobackup-winagent delete-job -name <nome>
+      Deletes a locally-known job definition.`)
 }
 
 func cmdRegister(args []string) {
@@ -215,6 +236,11 @@ func cmdServe(args []string) {
 	ticker := time.NewTicker(*interval)
 	defer ticker.Stop()
 
+	store := NewJobStore()
+	registry := newProgressRegistry()
+	exec := &Executor{Store: store, Registry: registry}
+	var pendingResults []poller.CommandResult
+
 	var lastKey string
 	var client *poller.Client
 
@@ -235,20 +261,130 @@ func cmdServe(args []string) {
 				lastKey = key
 			}
 			if client != nil {
-				// No job execution yet on this platform — reports an empty
-				// job list, same shape the Central already expects.
-				resp, err := client.Poll("idle", nil, []poller.JobInfo{}, []poller.RunningInfo{})
+				jobs, _ := store.List()
+				jobInfos := make([]poller.JobInfo, 0, len(jobs))
+				for _, j := range jobs {
+					jobInfos = append(jobInfos, poller.JobInfo{ID: j.ID, Name: j.Name, Kind: "files", Cron: j.Cron, Enabled: j.Enabled, LastStatus: j.LastStatus})
+				}
+				running := make([]poller.RunningInfo, 0)
+				for jobID, s := range registry.snapshot() {
+					running = append(running, poller.RunningInfo{JobID: jobID, Status: s.Status, Percent: s.Percent, Message: s.Message})
+				}
+
+				resp, err := client.Poll("idle", pendingResults, jobInfos, running)
+				pendingResults = nil
 				if err != nil {
 					fmt.Printf("[%s] heartbeat falhou: %v\n", time.Now().Format(time.RFC3339), err)
-				} else if len(resp.Commands) > 0 {
-					fmt.Printf("[%s] heartbeat OK (%d comando(s) recebido(s), ainda não executados nesta versão)\n", time.Now().Format(time.RFC3339), len(resp.Commands))
 				} else {
-					fmt.Printf("[%s] heartbeat OK\n", time.Now().Format(time.RFC3339))
+					if len(resp.Commands) > 0 {
+						fmt.Printf("[%s] heartbeat OK — executando %d comando(s)\n", time.Now().Format(time.RFC3339), len(resp.Commands))
+					}
+					for _, cmd := range resp.Commands {
+						fmt.Printf("  comando %s (%s)\n", cmd.ID, cmd.Type)
+						pendingResults = append(pendingResults, exec.Execute(cmd))
+					}
+					if len(resp.Commands) == 0 {
+						fmt.Printf("[%s] heartbeat OK\n", time.Now().Format(time.RFC3339))
+					}
 				}
 			}
 		}
 		<-ticker.C
 	}
+}
+
+// --- Local CLI commands, usable without any Central at all — handy for
+// quick verification on a single machine (create a job, run it, check the
+// result) before wiring it up to a real Central.
+
+func cmdLocalCreateJob(args []string) {
+	fs := flag.NewFlagSet("create-job", flag.ExitOnError)
+	name := fs.String("name", "", "job name")
+	source := fs.String("source", "", "source directory")
+	dest := fs.String("dest", "", "destination directory")
+	deleteExtraneous := fs.Bool("delete-extraneous", false, "mirror deletions too (rsync --delete equivalent)")
+	fs.Parse(args)
+	if *name == "" || *source == "" || *dest == "" {
+		fatal("-name, -source e -dest são obrigatórios")
+	}
+	store := NewJobStore()
+	j, err := store.Create(FileJob{Name: *name, Source: *source, Dest: *dest, DestType: "local", DeleteExtraneous: *deleteExtraneous})
+	if err != nil {
+		fatal(err.Error())
+	}
+	fmt.Printf("Tarefa criada: id=%s nome=%s\n", j.ID, j.Name)
+}
+
+func cmdLocalListJobs() {
+	store := NewJobStore()
+	jobs, err := store.List()
+	if err != nil {
+		fatal(err.Error())
+	}
+	if len(jobs) == 0 {
+		fmt.Println("nenhuma tarefa criada ainda")
+		return
+	}
+	for _, j := range jobs {
+		status := j.LastStatus
+		if status == "" {
+			status = "nunca executada"
+		}
+		fmt.Printf("%s  %-20s %s -> %s  [%s]\n", j.ID, j.Name, j.Source, j.Dest, status)
+	}
+}
+
+func cmdLocalRunJob(args []string) {
+	fs := flag.NewFlagSet("run-job", flag.ExitOnError)
+	name := fs.String("name", "", "job name")
+	fs.Parse(args)
+	store := NewJobStore()
+	jobs, err := store.List()
+	if err != nil {
+		fatal(err.Error())
+	}
+	var target *FileJob
+	for i := range jobs {
+		if jobs[i].Name == *name {
+			target = &jobs[i]
+			break
+		}
+	}
+	if target == nil {
+		fatal(fmt.Sprintf("tarefa não encontrada: %s", *name))
+	}
+	fmt.Printf("Executando %q: %s -> %s ...\n", target.Name, target.Source, target.Dest)
+	result, err := Mirror(target.Source, target.Dest, target.DeleteExtraneous, func(done, total int, bytes int64, file string) {
+		fmt.Printf("\r%d/%d arquivos, %d bytes — %s          ", done, total, bytes, file)
+	})
+	fmt.Println()
+	if err != nil {
+		_ = store.UpdateStatus(target.ID, "failed", err.Error(), 0, 0)
+		fatal(err.Error())
+	}
+	_ = store.UpdateStatus(target.ID, "success", "", result.BytesCopied, result.FilesCopied)
+	fmt.Printf("OK: %d copiado(s), %d pulado(s), %d removido(s), %d byte(s)\n", result.FilesCopied, result.FilesSkipped, result.FilesDeleted, result.BytesCopied)
+}
+
+func cmdLocalDeleteJob(args []string) {
+	fs := flag.NewFlagSet("delete-job", flag.ExitOnError)
+	name := fs.String("name", "", "job name")
+	fs.Parse(args)
+	store := NewJobStore()
+	jobs, err := store.List()
+	if err != nil {
+		fatal(err.Error())
+	}
+	for _, j := range jobs {
+		if j.Name == *name {
+			if err := store.Delete(j.ID); err != nil {
+				fatal(err.Error())
+			}
+			fmt.Println("Tarefa apagada.")
+			return
+		}
+	}
+	fatal(fmt.Sprintf("tarefa não encontrada: %s", *name))
 }
 
 func fatal(msg string) {
