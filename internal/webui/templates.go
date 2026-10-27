@@ -862,8 +862,10 @@ var progressTmpl = template.Must(template.New("progress").Parse(`
   </div>
   <p id="gb-progress-message" style="margin-top:0.8rem;"></p>
   <div id="gb-progress-actions" style="display:none; gap:0.6rem;">
+    {{if not .IsDatabase}}
     <button type="button" id="gb-btn-pause" class="secondary" onclick="gbControl('pause')">Pausar</button>
     <button type="button" id="gb-btn-resume" class="secondary" style="display:none;" onclick="gbControl('resume')">Retomar</button>
+    {{end}}
     <button type="button" id="gb-btn-cancel" class="danger" onclick="gbControl('cancel')">Cancelar</button>
   </div>
 </div>
@@ -912,12 +914,14 @@ function gbPollStatus() {
 
       if (data.status === 'running' || data.status === 'paused') {
         actions.classList.add('gb-show');
-        if (data.status === 'paused') {
-          pauseBtn.style.display = 'none';
-          resumeBtn.style.display = '';
-        } else {
-          pauseBtn.style.display = '';
-          resumeBtn.style.display = 'none';
+        if (pauseBtn && resumeBtn) {
+          if (data.status === 'paused') {
+            pauseBtn.style.display = 'none';
+            resumeBtn.style.display = '';
+          } else {
+            pauseBtn.style.display = '';
+            resumeBtn.style.display = 'none';
+          }
         }
       } else {
         actions.classList.remove('gb-show');

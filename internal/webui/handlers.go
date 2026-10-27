@@ -374,8 +374,28 @@ func (s *Site) handleRunJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.renderPage(w, r, "Executando — "+name, progressTmpl, map[string]any{
-		"Name": name, "Base": s.base(r), "JobID": jobID,
+		"Name": name, "Base": s.base(r), "JobID": jobID, "IsDatabase": s.jobIsDatabase(ctx, runner, jobID),
 	})
+}
+
+// jobIsDatabase reports whether a job is a database job — used to hide the
+// Pause/Resume controls on the progress screen for database jobs (pausing a
+// live pg_dump/mysqldump/sqlite-copy risks the database server's own idle
+// timeout silently truncating the backup when resumed; Cancel stays
+// available for every job kind). Best-effort: defaults to false (show the
+// buttons) if the lookup fails, since Pause itself still safely rejects a
+// database job server-side either way.
+func (s *Site) jobIsDatabase(ctx context.Context, runner Runner, jobID string) bool {
+	jobs, err := runner.ListJobs(ctx)
+	if err != nil {
+		return false
+	}
+	for _, j := range jobs {
+		if j.ID == jobID {
+			return j.Kind == "database"
+		}
+	}
+	return false
 }
 
 // handleDeleteJob permanently removes a job definition (and its execution
