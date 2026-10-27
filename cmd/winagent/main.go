@@ -16,6 +16,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -90,6 +91,8 @@ func main() {
 		cmdStatus()
 	case "create-job":
 		cmdLocalCreateJob(os.Args[2:])
+	case "create-db-job":
+		cmdLocalCreateDBJob(os.Args[2:])
 	case "list-jobs":
 		cmdLocalListJobs()
 	case "run-job":
@@ -126,15 +129,22 @@ Usage:
       Clears the local registration (purely local — does not remove this
       agent from the Central's dashboard; use "Apagar" there for that).
 
-  gobackup-winagent create-job -name <nome> -source <dir> -dest <dir> [-delete-extraneous]
+  gobackup-winagent create-job -name <nome> -source <dir> -dest <dir> [-delete-extraneous] [-dest-type local|ssh] [-ssh-host H -ssh-port P -ssh-user U -ssh-key K]
       Creates a file-mirror job locally (no Central needed), for quick
-      testing on this machine.
+      testing on this machine. Destination can be local/NAS (a plain path)
+      or SSH (pure-Go SFTP upload, no external ssh.exe/rsync needed).
+
+  gobackup-winagent create-db-job -name <nome> -engine postgresql|mysql|mariadb|sqlite -dest <dir> [DB connection flags] [SSH dest flags] [-retention-days N]
+      Creates a database-dump job locally. Requires pg_dump/pg_dumpall
+      (PostgreSQL) or mysqldump (MySQL/MariaDB) to be installed and on
+      PATH; SQLite needs nothing extra (plain file copy).
 
   gobackup-winagent list-jobs
-      Lists locally-known jobs and their last run status.
+      Lists locally-known jobs (both kinds) and their last run status.
 
-  gobackup-winagent run-job -name <nome>
+  gobackup-winagent run-job -name <nome> [-password <db password>]
       Runs one locally-known job immediately, printing live progress.
+      -password is only used for database jobs and is never saved.
 
   gobackup-winagent delete-job -name <nome>
       Deletes a locally-known job definition.`)
@@ -264,7 +274,7 @@ func cmdServe(args []string) {
 				jobs, _ := store.List()
 				jobInfos := make([]poller.JobInfo, 0, len(jobs))
 				for _, j := range jobs {
-					jobInfos = append(jobInfos, poller.JobInfo{ID: j.ID, Name: j.Name, Kind: "files", Cron: j.Cron, Enabled: j.Enabled, LastStatus: j.LastStatus})
+					jobInfos = append(jobInfos, poller.JobInfo{ID: j.ID, Name: j.Name, Kind: j.Kind, Cron: j.Cron, Enabled: j.Enabled, LastStatus: j.LastStatus})
 				}
 				running := make([]poller.RunningInfo, 0)
 				for jobID, s := range registry.snapshot() {
@@ -303,16 +313,58 @@ func cmdLocalCreateJob(args []string) {
 	source := fs.String("source", "", "source directory")
 	dest := fs.String("dest", "", "destination directory")
 	deleteExtraneous := fs.Bool("delete-extraneous", false, "mirror deletions too (rsync --delete equivalent)")
+	destType := fs.String("dest-type", "local", "local|nas|ssh")
+	sshHost := fs.String("ssh-host", "", "SSH destination host")
+	sshPort := fs.Int("ssh-port", 22, "SSH destination port")
+	sshUser := fs.String("ssh-user", "", "SSH destination user")
+	sshKey := fs.String("ssh-key", "", "path to SSH private key")
 	fs.Parse(args)
 	if *name == "" || *source == "" || *dest == "" {
 		fatal("-name, -source e -dest são obrigatórios")
 	}
 	store := NewJobStore()
-	j, err := store.Create(FileJob{Name: *name, Source: *source, Dest: *dest, DestType: "local", DeleteExtraneous: *deleteExtraneous})
+	j, err := store.Create(Job{
+		Kind: "files", Name: *name, Source: *source, Dest: *dest, DestType: *destType, DeleteExtraneous: *deleteExtraneous,
+		SSHHost: *sshHost, SSHPort: *sshPort, SSHUser: *sshUser, SSHKey: *sshKey,
+	})
 	if err != nil {
 		fatal(err.Error())
 	}
-	fmt.Printf("Tarefa criada: id=%s nome=%s\n", j.ID, j.Name)
+	fmt.Printf("Tarefa de arquivos criada: id=%s nome=%s\n", j.ID, j.Name)
+}
+
+func cmdLocalCreateDBJob(args []string) {
+	fs := flag.NewFlagSet("create-db-job", flag.ExitOnError)
+	name := fs.String("name", "", "job name")
+	engine := fs.String("engine", "", "postgresql|mysql|mariadb|sqlite")
+	host := fs.String("host", "", "DB host (empty for sqlite)")
+	port := fs.Int("port", 0, "DB port (0 = engine default)")
+	username := fs.String("username", "", "DB username")
+	database := fs.String("database", "", "database name, or empty for all")
+	sqlitePath := fs.String("sqlite-path", "", "path to the .sqlite/.db file (sqlite only)")
+	compression := fs.String("compression", "gzip", "gzip|zip|none")
+	dest := fs.String("dest", "", "destination directory for the dump")
+	destType := fs.String("dest-type", "local", "local|nas|ssh")
+	sshHost := fs.String("ssh-host", "", "SSH destination host")
+	sshPort := fs.Int("ssh-port", 22, "SSH destination port")
+	sshUser := fs.String("ssh-user", "", "SSH destination user")
+	sshKey := fs.String("ssh-key", "", "path to SSH private key")
+	retention := fs.Int("retention-days", 0, "delete this job's own dumps older than N days (0 = keep forever)")
+	fs.Parse(args)
+	if *name == "" || *engine == "" || *dest == "" {
+		fatal("-name, -engine e -dest são obrigatórios")
+	}
+	store := NewJobStore()
+	j, err := store.Create(Job{
+		Kind: "database", Name: *name, Engine: *engine, Host: *host, Port: *port, Username: *username,
+		Database: *database, SQLitePath: *sqlitePath, Compression: *compression,
+		Dest: *dest, DestType: *destType, SSHHost: *sshHost, SSHPort: *sshPort, SSHUser: *sshUser, SSHKey: *sshKey,
+		RetentionDays: *retention,
+	})
+	if err != nil {
+		fatal(err.Error())
+	}
+	fmt.Printf("Tarefa de banco de dados criada: id=%s nome=%s\n", j.ID, j.Name)
 }
 
 func cmdLocalListJobs() {
@@ -330,33 +382,54 @@ func cmdLocalListJobs() {
 		if status == "" {
 			status = "nunca executada"
 		}
-		fmt.Printf("%s  %-20s %s -> %s  [%s]\n", j.ID, j.Name, j.Source, j.Dest, status)
+		if j.Kind == "database" {
+			fmt.Printf("%s  [banco]    %-20s %s -> %s  [%s]\n", j.ID, j.Name, j.Engine, j.Dest, status)
+		} else {
+			fmt.Printf("%s  [arquivos] %-20s %s -> %s  [%s]\n", j.ID, j.Name, j.Source, j.Dest, status)
+		}
 	}
 }
 
 func cmdLocalRunJob(args []string) {
 	fs := flag.NewFlagSet("run-job", flag.ExitOnError)
 	name := fs.String("name", "", "job name")
+	password := fs.String("password", "", "DB password (database jobs only — never saved)")
 	fs.Parse(args)
 	store := NewJobStore()
-	jobs, err := store.List()
+	target, found, err := store.GetByName(*name)
 	if err != nil {
 		fatal(err.Error())
 	}
-	var target *FileJob
-	for i := range jobs {
-		if jobs[i].Name == *name {
-			target = &jobs[i]
-			break
-		}
-	}
-	if target == nil {
+	if !found {
 		fatal(fmt.Sprintf("tarefa não encontrada: %s", *name))
 	}
+
+	if target.Kind == "database" {
+		fmt.Printf("Executando backup de banco %q (%s) -> %s ...\n", target.Name, target.Engine, target.Dest)
+		result, err := RunDBJob(context.Background(), target, *password)
+		if err != nil {
+			_ = store.UpdateStatus(target.ID, "failed", err.Error(), 0, 0)
+			fatal(err.Error())
+		}
+		_ = store.UpdateStatus(target.ID, "success", "", result.BytesWritten, 1)
+		fmt.Printf("OK: dump em %s (%d byte(s))", result.OutputPath, result.BytesWritten)
+		if result.Deleted > 0 {
+			fmt.Printf(", %d backup(s) antigo(s) removido(s) pela retenção", result.Deleted)
+		}
+		fmt.Println()
+		return
+	}
+
 	fmt.Printf("Executando %q: %s -> %s ...\n", target.Name, target.Source, target.Dest)
-	result, err := Mirror(target.Source, target.Dest, target.DeleteExtraneous, func(done, total int, bytes int64, file string) {
+	progress := func(done, total int, bytes int64, file string) {
 		fmt.Printf("\r%d/%d arquivos, %d bytes — %s          ", done, total, bytes, file)
-	})
+	}
+	var result MirrorResult
+	if target.DestType == "ssh" {
+		result, err = MirrorSSH(target.Source, target.SSHHost, target.SSHPort, target.SSHUser, target.SSHKey, target.Dest, target.DeleteExtraneous, progress)
+	} else {
+		result, err = Mirror(target.Source, target.Dest, target.DeleteExtraneous, progress)
+	}
 	fmt.Println()
 	if err != nil {
 		_ = store.UpdateStatus(target.ID, "failed", err.Error(), 0, 0)
