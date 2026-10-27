@@ -23,8 +23,8 @@ SetCompressor /SOLID lzma
 !include "MUI2.nsh"
 
 !define MUI_ABORTWARNING
-!define MUI_ICON "..\cmd\winagent-tray\icons\green.ico"
-!define MUI_UNICON "..\cmd\winagent-tray\icons\red.ico"
+!define MUI_ICON "icons\gobackup.ico"
+!define MUI_UNICON "icons\gobackup.ico"
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
@@ -51,6 +51,7 @@ Section "Instalar" SEC01
     SetOutPath "$INSTDIR"
     File "gobackup-winagent.exe"
     File "gobackup-winagent-tray.exe"
+    File "icons\gobackup.ico"
 
     ; Autostart: launch the tray app for every user who logs in. HKLM Run
     ; (not HKCU) so it works regardless of which user installed it.
@@ -58,14 +59,15 @@ Section "Instalar" SEC01
 
     ; Start Menu shortcut
     CreateDirectory "$SMPROGRAMS\${APP_NAME}"
-    CreateShortCut "$SMPROGRAMS\${APP_NAME}\GoBackup Agent.lnk" "$INSTDIR\gobackup-winagent-tray.exe"
-    CreateShortCut "$SMPROGRAMS\${APP_NAME}\Desinstalar.lnk" "$INSTDIR\uninstall.exe"
+    CreateShortCut "$SMPROGRAMS\${APP_NAME}\GoBackup Agent.lnk" "$INSTDIR\gobackup-winagent-tray.exe" "" "$INSTDIR\gobackup.ico"
+    CreateShortCut "$SMPROGRAMS\${APP_NAME}\Desinstalar.lnk" "$INSTDIR\uninstall.exe" "" "$INSTDIR\gobackup.ico"
 
     ; Uninstall registration (shows up in "Aplicativos e recursos")
     WriteRegStr HKLM "${UNINST_KEY}" "DisplayName" "${APP_NAME}"
     WriteRegStr HKLM "${UNINST_KEY}" "UninstallString" '"$INSTDIR\uninstall.exe"'
     WriteRegStr HKLM "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
     WriteRegStr HKLM "${UNINST_KEY}" "Publisher" "${PUBLISHER}"
+    WriteRegStr HKLM "${UNINST_KEY}" "DisplayIcon" "$INSTDIR\gobackup.ico"
     WriteRegStr HKLM "Software\${APP_DIR}" "InstallDir" "$INSTDIR"
 
     WriteUninstaller "$INSTDIR\uninstall.exe"
@@ -83,6 +85,7 @@ Section "Uninstall"
 
     Delete "$INSTDIR\gobackup-winagent.exe"
     Delete "$INSTDIR\gobackup-winagent-tray.exe"
+    Delete "$INSTDIR\gobackup.ico"
     Delete "$INSTDIR\uninstall.exe"
     RMDir "$INSTDIR"
 
