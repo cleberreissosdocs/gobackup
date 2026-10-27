@@ -48,6 +48,12 @@ func (e *Executor) Execute(ctx context.Context, cmd QueuedCommand) CommandResult
 		result, err = e.listJobs(ctx)
 	case "run_job":
 		result, err = e.runJob(ctx, cmd.Payload)
+	case "cancel_job":
+		result, err = e.cancelJob(cmd.Payload)
+	case "pause_job":
+		result, err = e.pauseJob(cmd.Payload)
+	case "resume_job":
+		result, err = e.resumeJob(cmd.Payload)
 	case "delete_job":
 		result, err = e.deleteJob(ctx, cmd.Payload)
 	default:
@@ -317,4 +323,30 @@ func (e *Executor) runJob(ctx context.Context, payload map[string]any) (map[stri
 		return nil, err
 	}
 	return map[string]any{"job_id": jobIDStr, "status": "started"}, nil
+}
+
+// cancelJob/pauseJob/resumeJob act on a job currently running through
+// e.Engine — see internal/jobexec/control.go for what each actually does.
+func (e *Executor) cancelJob(payload map[string]any) (map[string]any, error) {
+	jobIDStr, _ := payload["job_id"].(string)
+	if err := e.Engine.Cancel(jobIDStr); err != nil {
+		return nil, err
+	}
+	return map[string]any{"job_id": jobIDStr, "status": "cancelled"}, nil
+}
+
+func (e *Executor) pauseJob(payload map[string]any) (map[string]any, error) {
+	jobIDStr, _ := payload["job_id"].(string)
+	if err := e.Engine.Pause(jobIDStr); err != nil {
+		return nil, err
+	}
+	return map[string]any{"job_id": jobIDStr, "status": "paused"}, nil
+}
+
+func (e *Executor) resumeJob(payload map[string]any) (map[string]any, error) {
+	jobIDStr, _ := payload["job_id"].(string)
+	if err := e.Engine.Resume(jobIDStr); err != nil {
+		return nil, err
+	}
+	return map[string]any{"job_id": jobIDStr, "status": "running"}, nil
 }

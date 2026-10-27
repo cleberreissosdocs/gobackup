@@ -9,6 +9,8 @@ package jobexec
 import (
 	"context"
 	"fmt"
+	"os"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,6 +25,9 @@ import (
 type Engine struct {
 	Store    *db.Store
 	Registry *progress.Registry
+
+	mu      sync.Mutex
+	running map[string]*jobControl
 }
 
 // Start validates the job exists and kicks off its execution in a detached
@@ -51,18 +56,19 @@ func (e *Engine) Start(ctx context.Context, jobIDStr string, trigger core.Execut
 }
 
 func (e *Engine) run(jobID uuid.UUID, kind string, trigger core.ExecutionTrigger, password string) {
-	ctx := context.Background()
 	jobIDStr := jobID.String()
+	ctx, setProc := e.register(jobIDStr, kind)
+	defer e.unregister(jobIDStr)
 
 	switch kind {
 	case "files":
-		e.runFile(ctx, jobID, jobIDStr, trigger)
+		e.runFile(ctx, jobID, jobIDStr, trigger, setProc)
 	case "database":
 		e.runDB(ctx, jobID, jobIDStr, trigger, password)
 	}
 }
 
-func (e *Engine) runFile(ctx context.Context, jobID uuid.UUID, jobIDStr string, trigger core.ExecutionTrigger) {
+func (e *Engine) runFile(ctx context.Context, jobID uuid.UUID, jobIDStr string, trigger core.ExecutionTrigger, onStart func(*os.Process)) {
 	d, err := e.Store.GetFileJobDetails(ctx, jobID)
 	if err != nil {
 		e.fail(jobIDStr, err)
@@ -95,9 +101,14 @@ func (e *Engine) runFile(ctx context.Context, jobID uuid.UUID, jobIDStr string, 
 		}
 		lastUpdate = time.Now()
 		e.Registry.Set(jobIDStr, progress.State{ExecutionID: execID.String(), Status: "running", Percent: pct, Message: line})
-	})
+	}, onStart)
 	if runErr != nil {
-		_ = e.Store.FinishExecution(ctx, execID, core.ExecFailed, 0, 0, runErr.Error())
+		if ctx.Err() == context.Canceled {
+			_ = e.Store.FinishExecution(context.Background(), execID, core.ExecCancelled, 0, 0, "cancelado pelo usuário")
+			e.Registry.Set(jobIDStr, progress.State{ExecutionID: execID.String(), Status: "cancelled", Percent: -1, Message: "cancelado pelo usuário"})
+			return
+		}
+		_ = e.Store.FinishExecution(context.Background(), execID, core.ExecFailed, 0, 0, runErr.Error())
 		e.Registry.Set(jobIDStr, progress.State{ExecutionID: execID.String(), Status: "failed", Percent: -1, Message: runErr.Error()})
 		return
 	}
@@ -131,7 +142,12 @@ func (e *Engine) runDB(ctx context.Context, jobID uuid.UUID, jobIDStr string, tr
 		SSHHost: d.SSHHost, SSHPort: d.SSHPort, SSHUser: d.SSHUser, SSHKey: d.SSHKey,
 	})
 	if runErr != nil {
-		_ = e.Store.FinishExecution(ctx, execID, core.ExecFailed, 0, 0, runErr.Error())
+		if ctx.Err() == context.Canceled {
+			_ = e.Store.FinishExecution(context.Background(), execID, core.ExecCancelled, 0, 0, "cancelado pelo usuário")
+			e.Registry.Set(jobIDStr, progress.State{ExecutionID: execID.String(), Status: "cancelled", Percent: -1, Message: "cancelado pelo usuário"})
+			return
+		}
+		_ = e.Store.FinishExecution(context.Background(), execID, core.ExecFailed, 0, 0, runErr.Error())
 		e.Registry.Set(jobIDStr, progress.State{ExecutionID: execID.String(), Status: "failed", Percent: -1, Message: runErr.Error()})
 		return
 	}

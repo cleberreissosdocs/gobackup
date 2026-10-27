@@ -42,6 +42,9 @@ func (s *Site) Mount(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("GET "+prefix+"/jobs/{jobID}/progress", s.Auth.RequireLogin(s.handleViewProgress))
 	mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/delete", s.Auth.RequireLoginAndCSRF(s.handleDeleteJob))
 	mux.HandleFunc("GET "+prefix+"/jobs/{jobID}/status", s.Auth.RequireLogin(s.handleJobStatus))
+	mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/cancel", s.Auth.RequireLoginAndCSRF(s.handleCancelJob))
+	mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/pause", s.Auth.RequireLoginAndCSRF(s.handlePauseJob))
+	mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/resume", s.Auth.RequireLoginAndCSRF(s.handleResumeJob))
 }
 
 func (s *Site) handleLoginForm(w http.ResponseWriter, r *http.Request) {
@@ -340,7 +343,7 @@ func (s *Site) handleViewProgress(w http.ResponseWriter, r *http.Request) {
 	}
 	jobID := r.PathValue("jobID")
 	s.renderPage(w, r, "Executando — "+name, progressTmpl, map[string]any{
-		"Name": name, "Base": s.base(r), "JobID": jobID,
+		"Name": name, "Base": s.base(r), "JobID": jobID, "CSRF": s.Auth.CSRFToken(r),
 	})
 }
 
@@ -418,6 +421,65 @@ func (s *Site) handleJobStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(progressStatusResponse{Status: info.Status, Percent: info.Percent, Message: info.Message})
+}
+
+// controlActionResponse is what the cancel/pause/resume endpoints return
+// for the progress page's JS to show immediately — the actual effect
+// (status flipping to "cancelled"/"paused") is confirmed moments later by
+// the normal /status poll.
+type controlActionResponse struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+func (s *Site) writeControlResult(w http.ResponseWriter, err error) {
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(controlActionResponse{OK: false, Error: err.Error()})
+		return
+	}
+	json.NewEncoder(w).Encode(controlActionResponse{OK: true})
+}
+
+// handleCancelJob aborts a currently running execution (file or database)
+// — the "Cancelar" button on the progress page.
+func (s *Site) handleCancelJob(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	runner, _, err := s.GetRunner(r)
+	if err != nil {
+		s.writeControlResult(w, err)
+		return
+	}
+	s.writeControlResult(w, runner.CancelJob(ctx, r.PathValue("jobID")))
+}
+
+// handlePauseJob suspends a running FILE job's transfer — the "Pausar"
+// button. Returns an error for database jobs (see internal/jobexec's
+// package doc for why) or when nothing is running for this job.
+func (s *Site) handlePauseJob(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	runner, _, err := s.GetRunner(r)
+	if err != nil {
+		s.writeControlResult(w, err)
+		return
+	}
+	s.writeControlResult(w, runner.PauseJob(ctx, r.PathValue("jobID")))
+}
+
+// handleResumeJob un-suspends a previously paused job — the "Retomar"
+// button shown in place of "Pausar" once paused.
+func (s *Site) handleResumeJob(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	runner, _, err := s.GetRunner(r)
+	if err != nil {
+		s.writeControlResult(w, err)
+		return
+	}
+	s.writeControlResult(w, runner.ResumeJob(ctx, r.PathValue("jobID")))
 }
 
 func (s *Site) base(r *http.Request) string {

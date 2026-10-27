@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -120,8 +121,11 @@ type ProgressFunc func(percent int, line string)
 // stays an EXACT mirror of the source, or just accumulates/overwrites
 // without ever pruning. Note: for an ssh destination, --link-dest is
 // resolved on the REMOTE host, so it must be a path on that host, not on
-// the agent running rsync. onProgress may be nil.
-func Run(ctx context.Context, sourcePath string, dest Destination, backupType core.BackupType, linkDestPath string, deleteExtraneous bool, onProgress ProgressFunc) (Result, error) {
+// the agent running rsync. onProgress may be nil. onStart, if non-nil, is
+// called with the rsync *os.Process right after it starts — the caller
+// uses this to support OS-level Pause/Resume (SIGSTOP/SIGCONT) on top of
+// ctx cancellation for outright Cancel.
+func Run(ctx context.Context, sourcePath string, dest Destination, backupType core.BackupType, linkDestPath string, deleteExtraneous bool, onProgress ProgressFunc, onStart func(*os.Process)) (Result, error) {
 	target, extraArgs, err := dest.rsyncArgs()
 	if err != nil {
 		return Result{}, fmt.Errorf("invalid destination: %w", err)
@@ -151,6 +155,9 @@ func Run(ctx context.Context, sourcePath string, dest Destination, backupType co
 
 	if err := cmd.Start(); err != nil {
 		return Result{}, fmt.Errorf("rsync start: %w", err)
+	}
+	if onStart != nil {
+		onStart(cmd.Process)
 	}
 
 	scanner := bufio.NewScanner(stdout)

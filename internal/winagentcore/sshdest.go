@@ -7,6 +7,7 @@
 package winagentcore
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"io/fs"
@@ -106,7 +107,7 @@ func UploadFile(host string, port int, user, keyPath, localPath, remoteDir strin
 // the local source tree and uploads anything missing/changed on the remote
 // side (size+mtime quick-check), optionally deleting remote files that no
 // longer exist locally.
-func MirrorSSH(src, host string, port int, user, keyPath, remoteDest string, deleteExtraneous bool, onProgress MirrorProgress) (MirrorResult, error) {
+func MirrorSSH(ctx context.Context, src, host string, port int, user, keyPath, remoteDest string, deleteExtraneous bool, onProgress MirrorProgress) (MirrorResult, error) {
 	client, sc, err := sshConnect(host, port, user, keyPath)
 	if err != nil {
 		return MirrorResult{}, err
@@ -178,6 +179,11 @@ func MirrorSSH(src, host string, port int, user, keyPath, remoteDest string, del
 	var copiedBytes int64
 	total := len(toCopy)
 	for _, j := range toCopy {
+		select {
+		case <-ctx.Done():
+			return MirrorResult{FilesCopied: copiedCount, BytesCopied: copiedBytes, FilesSkipped: skipped}, ctx.Err()
+		default:
+		}
 		n, copyErr := uploadOne(sc, j.srcPath, j.remotePath)
 		if copyErr != nil {
 			return MirrorResult{FilesCopied: copiedCount, BytesCopied: copiedBytes, FilesSkipped: skipped}, fmt.Errorf("copiar %s: %w", j.rel, copyErr)

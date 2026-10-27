@@ -335,6 +335,26 @@ func (r *CentralRunner) JobStatus(ctx context.Context, jobID string) (ProgressIn
 	return ProgressInfo{Status: status, Percent: percent, Message: message}, nil
 }
 
+// CancelJob/PauseJob/ResumeJob fire their command and return immediately —
+// same fire-and-forget pattern as RunJob. The agent executes it against
+// its own Engine (Linux) or Executor (Windows) and the outcome shows up
+// on the next progress poll (status flips to "cancelled", or the message
+// explains why pause isn't available for a database job).
+func (r *CentralRunner) CancelJob(ctx context.Context, jobID string) error {
+	_, err := r.Store.EnqueueCommand(ctx, r.AgentID, "cancel_job", map[string]any{"job_id": jobID})
+	return err
+}
+
+func (r *CentralRunner) PauseJob(ctx context.Context, jobID string) error {
+	_, err := r.Store.EnqueueCommand(ctx, r.AgentID, "pause_job", map[string]any{"job_id": jobID})
+	return err
+}
+
+func (r *CentralRunner) ResumeJob(ctx context.Context, jobID string) error {
+	_, err := r.Store.EnqueueCommand(ctx, r.AgentID, "resume_job", map[string]any{"job_id": jobID})
+	return err
+}
+
 func (r *CentralRunner) RecentActivity(ctx context.Context, limit int) ([]ActivityItem, error) {
 	rows, err := r.Store.ListRecentCommands(ctx, r.AgentID, limit)
 	if err != nil {

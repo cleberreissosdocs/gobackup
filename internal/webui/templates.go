@@ -861,15 +861,44 @@ var progressTmpl = template.Must(template.New("progress").Parse(`
     <div id="gb-progress-label" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:0.85rem;">iniciando…</div>
   </div>
   <p id="gb-progress-message" style="margin-top:0.8rem;"></p>
+  <div id="gb-progress-actions" style="display:none; gap:0.6rem;">
+    <button type="button" id="gb-btn-pause" class="secondary" onclick="gbControl('pause')">Pausar</button>
+    <button type="button" id="gb-btn-resume" class="secondary" style="display:none;" onclick="gbControl('resume')">Retomar</button>
+    <button type="button" id="gb-btn-cancel" class="danger" onclick="gbControl('cancel')">Cancelar</button>
+  </div>
 </div>
 <p><a href="{{.Base}}/">&larr; voltar</a> (a tarefa continua rodando mesmo se você sair desta página)</p>
 <style>
 .gb-indeterminate { background: repeating-linear-gradient(45deg, #2d6cdf, #2d6cdf 10px, #3a7ef0 10px, #3a7ef0 20px); background-size: 28px 28px; animation: gb-stripes 1s linear infinite; width:100% !important; }
 @keyframes gb-stripes { from { background-position: 0 0; } to { background-position: 28px 0; } }
+#gb-progress-actions.gb-show { display: flex !important; }
+#gb-progress-actions button.danger { background:#3a1f1f; color:#ff8080; border:1px solid #5a2a2a; }
+#gb-progress-actions button.secondary { background:#22252c; color:#ddd; border:1px solid #3a3d44; }
 </style>
 <script>
 var gbJobID = {{.JobID}};
 var gbBase = {{.Base}};
+var gbCSRF = {{.CSRF}};
+var gbBusy = false;
+
+function gbPostAction(action) {
+  return fetch(gbBase + '/jobs/' + gbJobID + '/' + action, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'csrf_token=' + encodeURIComponent(gbCSRF)
+  }).then(function(r) { return r.json(); });
+}
+
+function gbControl(action) {
+  if (gbBusy) { return; }
+  gbBusy = true;
+  gbPostAction(action).then(function(data) {
+    gbBusy = false;
+    if (!data.ok) { alert(data.error || 'falha ao ' + action); }
+  }).catch(function() { gbBusy = false; });
+}
+
 function gbPollStatus() {
   fetch(gbBase + '/jobs/' + gbJobID + '/status', {credentials: 'same-origin'})
     .then(function(r) { return r.json(); })
@@ -877,7 +906,28 @@ function gbPollStatus() {
       var bar = document.getElementById('gb-progress-bar');
       var label = document.getElementById('gb-progress-label');
       var msg = document.getElementById('gb-progress-message');
-      if (data.percent >= 0) {
+      var actions = document.getElementById('gb-progress-actions');
+      var pauseBtn = document.getElementById('gb-btn-pause');
+      var resumeBtn = document.getElementById('gb-btn-resume');
+
+      if (data.status === 'running' || data.status === 'paused') {
+        actions.classList.add('gb-show');
+        if (data.status === 'paused') {
+          pauseBtn.style.display = 'none';
+          resumeBtn.style.display = '';
+        } else {
+          pauseBtn.style.display = '';
+          resumeBtn.style.display = 'none';
+        }
+      } else {
+        actions.classList.remove('gb-show');
+      }
+
+      if (data.status === 'paused') {
+        bar.classList.remove('gb-indeterminate');
+        label.textContent = 'pausado';
+        bar.style.background = '#e0a030';
+      } else if (data.percent >= 0) {
         bar.classList.remove('gb-indeterminate');
         bar.style.width = data.percent + '%';
         label.textContent = data.percent + '%';
@@ -887,8 +937,9 @@ function gbPollStatus() {
       }
       msg.textContent = data.message || '';
       msg.className = data.status === 'failed' ? 'error' : (data.status === 'success' ? 'status-success' : '');
-      if (data.status === 'success' || data.status === 'failed') {
-        bar.style.background = data.status === 'success' ? '#4caf50' : '#f44336';
+      if (data.status === 'success' || data.status === 'failed' || data.status === 'cancelled') {
+        var colors = {success: '#4caf50', failed: '#f44336', cancelled: '#888'};
+        bar.style.background = colors[data.status];
         bar.classList.remove('gb-indeterminate');
         if (data.percent < 0) { bar.style.width = '100%'; }
         return; // stop polling
@@ -898,5 +949,4 @@ function gbPollStatus() {
     .catch(function() { setTimeout(gbPollStatus, 2000); });
 }
 gbPollStatus();
-</script>
-`))
+</script>`))

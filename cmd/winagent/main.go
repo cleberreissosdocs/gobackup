@@ -96,7 +96,7 @@ Usage:
 
 func cmdRegister(args []string) {
 	fs := flag.NewFlagSet("register", flag.ExitOnError)
-	central := fs.String("central", "", "Central URL, e.g. https://central.example.com:8443")
+	central := fs.String("central", "", "Central URL, e.g. https://central.example.com:61443")
 	caPath := fs.String("ca", "", "Path to the Central's CA certificate PEM (omit if it has a public CA-signed cert)")
 	name := fs.String("name", "", "Display name for this agent (defaults to the hostname)")
 	fs.Parse(args)
@@ -296,9 +296,9 @@ func cmdLocalRunJob(args []string) {
 	}
 	var result winagentcore.MirrorResult
 	if target.DestType == "ssh" {
-		result, err = winagentcore.MirrorSSH(target.Source, target.SSHHost, target.SSHPort, target.SSHUser, target.SSHKey, target.Dest, target.DeleteExtraneous, progress)
+		result, err = winagentcore.MirrorSSH(context.Background(), target.Source, target.SSHHost, target.SSHPort, target.SSHUser, target.SSHKey, target.Dest, target.DeleteExtraneous, progress)
 	} else {
-		result, err = winagentcore.Mirror(target.Source, target.Dest, target.DeleteExtraneous, progress)
+		result, err = winagentcore.Mirror(context.Background(), target.Source, target.Dest, target.DeleteExtraneous, progress)
 	}
 	fmt.Println()
 	if err != nil {

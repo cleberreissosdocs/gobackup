@@ -13,6 +13,7 @@
 package winagentcore
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"io/fs"
@@ -44,7 +45,7 @@ type MirrorResult struct {
 // already identical by size+modtime (the same quick-check heuristic rsync
 // uses by default), and — if deleteExtraneous — removes anything under dst
 // that no longer exists under src, so dst ends up an exact mirror of src.
-func Mirror(src, dst string, deleteExtraneous bool, onProgress MirrorProgress) (MirrorResult, error) {
+func Mirror(ctx context.Context, src, dst string, deleteExtraneous bool, onProgress MirrorProgress) (MirrorResult, error) {
 	src = filepath.Clean(src)
 	dst = filepath.Clean(dst)
 
@@ -131,6 +132,16 @@ func Mirror(src, dst string, deleteExtraneous bool, onProgress MirrorProgress) (
 		go func() {
 			defer wg.Done()
 			for j := range jobCh {
+				select {
+				case <-ctx.Done():
+					mu.Lock()
+					if firstErr == nil {
+						firstErr = ctx.Err()
+					}
+					mu.Unlock()
+					continue
+				default:
+				}
 				n, copyErr := copyOneFile(j.srcPath, j.dstPath)
 				mu.Lock()
 				if copyErr != nil && firstErr == nil {

@@ -200,12 +200,29 @@ func (r *LocalRunner) JobStatus(ctx context.Context, jobIDStr string) (ProgressI
 		status = "failed"
 	case "running":
 		status = "running"
+	case "cancelled":
+		status = "cancelled"
 	}
 	pct := -1
 	if status == "success" {
 		pct = 100
 	}
 	return ProgressInfo{Status: status, Percent: pct, Message: last.ErrorMessage}, nil
+}
+
+// CancelJob/PauseJob/ResumeJob delegate straight to the shared Engine —
+// see internal/jobexec/control.go for what each actually does and why
+// Pause/Resume only works for file jobs.
+func (r *LocalRunner) CancelJob(ctx context.Context, jobIDStr string) error {
+	return r.Engine.Cancel(jobIDStr)
+}
+
+func (r *LocalRunner) PauseJob(ctx context.Context, jobIDStr string) error {
+	return r.Engine.Pause(jobIDStr)
+}
+
+func (r *LocalRunner) ResumeJob(ctx context.Context, jobIDStr string) error {
+	return r.Engine.Resume(jobIDStr)
 }
 
 func (r *LocalRunner) RecentActivity(ctx context.Context, limit int) ([]ActivityItem, error) {

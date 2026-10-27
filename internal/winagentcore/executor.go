@@ -53,6 +53,9 @@ func (p *ProgressRegistry) Snapshot() map[string]RunState {
 type Executor struct {
 	Store    *JobStore
 	Registry *ProgressRegistry
+
+	mu       sync.Mutex
+	controls map[string]*JobControl
 }
 
 func payloadStr(payload map[string]any, key string) string {
@@ -265,6 +268,27 @@ func (e *Executor) dispatch(cmd poller.QueuedCommand) (map[string]any, error) {
 		}
 		return map[string]any{"job_id": id, "status": "started"}, nil
 
+	case "cancel_job":
+		id := payloadStr(cmd.Payload, "job_id")
+		if err := e.CancelJob(id); err != nil {
+			return nil, err
+		}
+		return map[string]any{"job_id": id, "status": "cancelled"}, nil
+
+	case "pause_job":
+		id := payloadStr(cmd.Payload, "job_id")
+		if err := e.PauseJob(id); err != nil {
+			return nil, err
+		}
+		return map[string]any{"job_id": id, "status": "paused"}, nil
+
+	case "resume_job":
+		id := payloadStr(cmd.Payload, "job_id")
+		if err := e.ResumeJob(id); err != nil {
+			return nil, err
+		}
+		return map[string]any{"job_id": id, "status": "running"}, nil
+
 	default:
 		return nil, fmt.Errorf("unsupported command type: %s", cmd.Type)
 	}
@@ -283,6 +307,9 @@ func defaultStr(v, def string) string {
 func (e *Executor) runFileJob(j Job) {
 	e.Registry.Set(j.ID, RunState{Status: "running", Percent: 0, Message: "iniciando..."})
 
+	ctx, jc := e.registerControl(context.Background(), j.ID, "files")
+	defer e.unregisterControl(j.ID)
+
 	lastUpdate := time.Now()
 	progress := func(filesDone, filesTotal int, bytesDone int64, currentFile string) {
 		if time.Since(lastUpdate) < 200*time.Millisecond && filesDone != filesTotal {
@@ -293,18 +320,26 @@ func (e *Executor) runFileJob(j Job) {
 		if filesTotal > 0 {
 			pct = filesDone * 100 / filesTotal
 		}
+		if jc.Pause != nil {
+			jc.Pause.Wait(ctx) // blocks here between files while paused
+		}
 		e.Registry.Set(j.ID, RunState{Status: "running", Percent: pct, Message: fmt.Sprintf("%d/%d arquivos — %s", filesDone, filesTotal, currentFile)})
 	}
 
 	var result MirrorResult
 	var err error
 	if j.DestType == "ssh" {
-		result, err = MirrorSSH(j.Source, j.SSHHost, j.SSHPort, j.SSHUser, j.SSHKey, j.Dest, j.DeleteExtraneous, progress)
+		result, err = MirrorSSH(ctx, j.Source, j.SSHHost, j.SSHPort, j.SSHUser, j.SSHKey, j.Dest, j.DeleteExtraneous, progress)
 	} else {
-		result, err = Mirror(j.Source, j.Dest, j.DeleteExtraneous, progress)
+		result, err = Mirror(ctx, j.Source, j.Dest, j.DeleteExtraneous, progress)
 	}
 
 	if err != nil {
+		if ctx.Err() == context.Canceled {
+			e.Registry.Set(j.ID, RunState{Status: "cancelled", Percent: -1, Message: "cancelado pelo usuário"})
+			_ = e.Store.UpdateStatus(j.ID, "cancelled", "cancelado pelo usuário", result.BytesCopied, result.FilesCopied)
+			return
+		}
 		e.Registry.Set(j.ID, RunState{Status: "failed", Percent: -1, Message: err.Error()})
 		_ = e.Store.UpdateStatus(j.ID, "failed", err.Error(), result.BytesCopied, result.FilesCopied)
 		return
@@ -327,9 +362,17 @@ func (e *Executor) runDBJob(j Job, password string) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 	defer cancel()
+	ctx, jc := e.registerControl(ctx, j.ID, "database")
+	_ = jc
+	defer e.unregisterControl(j.ID)
 
 	result, err := RunDBJob(ctx, j, password)
 	if err != nil {
+		if ctx.Err() == context.Canceled {
+			e.Registry.Set(j.ID, RunState{Status: "cancelled", Percent: -1, Message: "cancelado pelo usuário"})
+			_ = e.Store.UpdateStatus(j.ID, "cancelled", "cancelado pelo usuário", 0, 0)
+			return
+		}
 		e.Registry.Set(j.ID, RunState{Status: "failed", Percent: -1, Message: err.Error()})
 		_ = e.Store.UpdateStatus(j.ID, "failed", err.Error(), 0, 0)
 		return

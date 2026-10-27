@@ -115,7 +115,7 @@ var SettingsTmpl = template.Must(template.New("settings").Parse(`
 <form method="post" action="/settings">
   <input type="hidden" name="csrf_token" value="{{.CSRF}}">
   <div>Nome deste agente (como aparecerá no painel): <input type="text" name="name" required></div>
-  <div>URL do Central (ex: https://central.minhaempresa.com:8443): <input type="text" name="central_url" required></div>
+  <div>URL do Central (ex: https://central.minhaempresa.com:61443): <input type="text" name="central_url" required></div>
   <div>Certificado CA do Central (cole o conteúdo do .pem — deixe em branco se o Central usa um certificado de CA pública confiável):
     <textarea name="central_ca_pem" rows="10" style="width:100%; max-width:560px; background:#1b1b22; color:#eee; border:1px solid #333; font-family:monospace;"></textarea>
   </div>

@@ -136,6 +136,16 @@ type Runner interface {
 	// "Executar" progress bar to poll every ~1s.
 	JobStatus(ctx context.Context, jobID string) (ProgressInfo, error)
 
+	// CancelJob aborts a currently running execution of this job (if any)
+	// — works for both file and database jobs.
+	CancelJob(ctx context.Context, jobID string) error
+
+	// PauseJob/ResumeJob suspend/resume a currently running FILE job's
+	// transfer. Returns an error for database jobs (not supported — see
+	// internal/jobexec's package doc for why) or when nothing is running.
+	PauseJob(ctx context.Context, jobID string) error
+	ResumeJob(ctx context.Context, jobID string) error
+
 	RecentActivity(ctx context.Context, limit int) ([]ActivityItem, error)
 }
 

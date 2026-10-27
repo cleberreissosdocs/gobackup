@@ -38,10 +38,10 @@ services:
     command:
       - serve
       - -db=postgres://gobackup:${POSTGRES_PASSWORD}@postgres:5432/gobackup?sslmode=disable
-      - -addr=:8443
+      - -addr=:61443
       - -tls-hosts=${TLS_HOSTS:-localhost,127.0.0.1}
     ports:
-      - "${CENTRAL_PORT:-8443}:8443"
+      - "${CENTRAL_PORT:-61443}:61443"
     volumes:
       - central_tls:/data
 

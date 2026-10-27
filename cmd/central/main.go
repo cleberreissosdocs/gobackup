@@ -63,7 +63,7 @@ func cmdMigrate(args []string) {
 func cmdServe(args []string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	connString := fs.String("db", "", "Postgres connection string")
-	addr := fs.String("addr", ":8443", "listen address")
+	addr := fs.String("addr", ":61443", "listen address")
 	tlsCert := fs.String("tls-cert", "", "TLS certificate path (auto-generated self-signed if omitted)")
 	tlsKey := fs.String("tls-key", "", "TLS key path (auto-generated self-signed if omitted)")
 	tlsHosts := fs.String("tls-hosts", "localhost,127.0.0.1", "comma-separated hostnames/IPs for the self-signed cert's SAN (must include the IP agents will connect to)")

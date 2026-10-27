@@ -136,7 +136,7 @@ func cmdRun(args []string) {
 	if err != nil {
 		fatal(err.Error())
 	}
-	res, runErr := backup.Run(ctx, *source, destination, bt, *linkDest, *deleteExtraneous, nil)
+	res, runErr := backup.Run(ctx, *source, destination, bt, *linkDest, *deleteExtraneous, nil, nil)
 	elapsed := time.Since(start)
 
 	if runErr != nil {
@@ -158,7 +158,7 @@ func fatal(msg string) {
 
 func cmdRegister(args []string) {
 	fs := flag.NewFlagSet("register", flag.ExitOnError)
-	central := fs.String("central", "", "Central base URL, e.g. https://host:8443")
+	central := fs.String("central", "", "Central base URL, e.g. https://host:61443")
 	name := fs.String("name", "", "agent display name")
 	tokenFile := fs.String("token-file", "/etc/gobackup/agent-token", "where to save the issued token")
 	centralCA := fs.String("central-ca", "", "path to the Central's TLS CA cert (pinned trust)")
@@ -190,7 +190,7 @@ func cmdRegister(args []string) {
 
 func cmdHeartbeat(args []string) {
 	fs := flag.NewFlagSet("heartbeat", flag.ExitOnError)
-	central := fs.String("central", "", "Central base URL, e.g. https://host:8443")
+	central := fs.String("central", "", "Central base URL, e.g. https://host:61443")
 	connString := fs.String("db", "", "agent's local Postgres connection string")
 	tokenFile := fs.String("token-file", "/etc/gobackup/agent-token", "file containing the agent token")
 	interval := fs.Duration("interval", 1*time.Second, "polling interval")
@@ -411,7 +411,7 @@ func cmdRunDB(args []string) {
 func cmdServe(args []string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	connString := fs.String("db", "", "agent's local Postgres connection string")
-	addr := fs.String("addr", ":8081", "listen address for the local web UI")
+	addr := fs.String("addr", ":61081", "listen address for the local web UI")
 	tlsCert := fs.String("tls-cert", "", "TLS certificate path (auto-generated self-signed if omitted)")
 	tlsKey := fs.String("tls-key", "", "TLS key path (auto-generated self-signed if omitted)")
 	noTLS := fs.Bool("no-tls", false, "serve plain HTTP instead of HTTPS (NOT recommended)")

@@ -14,7 +14,7 @@
 #        create-user -db "postgres://gobackup:***@postgres:5432/gobackup?sslmode=disable" \
 #        -email admin -password <escolha>
 #   5. docker compose -f docker-compose.agent.yml --env-file .env.agent up -d
-#   6. Open https://<este-servidor>:8081/, faça login, e em "Configurações"
+#   6. Open https://<este-servidor>:61081/, faça login, e em "Configurações"
 #      aponte para a URL do Central e cole o certificado CA dele.
 #
 # Mount whatever host directories you want backed up under /backups — paths
@@ -72,10 +72,10 @@ services:
     command:
       - serve
       - -db=postgres://gobackup:${POSTGRES_PASSWORD}@postgres:5432/gobackup?sslmode=disable
-      - -addr=:8081
+      - -addr=:61081
       - -heartbeat-interval=${HEARTBEAT_INTERVAL:-1s}
     ports:
-      - "${AGENT_WEB_PORT:-8081}:8081"
+      - "${AGENT_WEB_PORT:-61081}:61081"
     volumes:
       - agent_data:/data
       - ${BACKUP_SOURCE_DIR:-./backups}:/backups

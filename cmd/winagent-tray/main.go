@@ -140,7 +140,7 @@ const pageTmpl = `<!DOCTYPE html>
 %s
 <form method="post" action="/register">
   <label>Central (URL)</label>
-  <input type="text" name="central" value="%s" placeholder="https://central.minhaempresa.com:8443" required>
+  <input type="text" name="central" value="%s" placeholder="https://central.minhaempresa.com:61443" required>
 
   <label>Nome deste servidor</label>
   <input type="text" name="name" value="%s" placeholder="%s (hostname atual)">
