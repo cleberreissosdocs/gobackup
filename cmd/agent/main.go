@@ -448,6 +448,9 @@ func cmdServe(args []string) {
 	go scheduler.Run(ctx, store, engine, agentID, 20*time.Second)
 
 	runner := &webui.LocalRunner{Store: store, TenantID: tenantID, AgentID: agentID, Engine: engine, Registry: progressRegistry}
+	if err := store.EnsureDefaultAdmin(ctx); err != nil {
+		fatal(err.Error())
+	}
 	auth := webauth.NewManager(store)
 	site := &webui.Site{
 		Auth: auth,

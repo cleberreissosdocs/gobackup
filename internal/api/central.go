@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -27,6 +28,9 @@ type Server struct {
 }
 
 func NewServer(store *db.Store) *Server {
+	if err := store.EnsureDefaultAdmin(context.Background()); err != nil {
+		log.Printf("warning: failed to seed default admin user: %v", err)
+	}
 	s := &Server{Store: store, Notifier: &notify.Dispatcher{Store: store}, Auth: webauth.NewManager(store), Mux: http.NewServeMux()}
 	s.routes()
 	return s

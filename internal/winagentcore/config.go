@@ -14,12 +14,13 @@ import (
 )
 
 type Config struct {
-	CentralURL string `json:"central_url"`
-	Token      string `json:"token"`
-	AgentID    string `json:"agent_id"`
-	Name       string `json:"name"`
-	Hostname   string `json:"hostname"`
-	CACertPEM  string `json:"ca_cert_pem"`
+	CentralURL   string `json:"central_url"`
+	Token        string `json:"token"`
+	AgentID      string `json:"agent_id"`
+	Name         string `json:"name"`
+	Hostname     string `json:"hostname"`
+	CACertPEM    string `json:"ca_cert_pem"`
+	PasswordHash string `json:"password_hash,omitempty"`
 }
 
 func ConfigPath() string {

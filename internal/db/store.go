@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/cleber/gobackup/internal/core"
 )
@@ -63,6 +64,39 @@ func (s *Store) EnsureDefaultTenantAndAgent(ctx context.Context, hostname string
 		}
 	}
 	return tenantID, agentID, nil
+}
+
+// CountUsers returns how many user accounts exist — used to decide whether
+// a fresh install needs the default admin/admin account seeded.
+func (s *Store) CountUsers(ctx context.Context) (int, error) {
+	var n int
+	if err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count users: %w", err)
+	}
+	return n, nil
+}
+
+// EnsureDefaultAdmin seeds a default admin/admin login the first time this
+// deployment ever boots (no users in the table yet) so a fresh install is
+// immediately usable without a manual `create-user` CLI step. It never
+// touches an existing account — an admin who already changed the password,
+// or added other users, keeps exactly what they have.
+func (s *Store) EnsureDefaultAdmin(ctx context.Context) error {
+	n, err := s.CountUsers(ctx)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte("admin"), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash default admin password: %w", err)
+	}
+	if _, err := s.CreateUser(ctx, uuid.Nil, "admin", string(hash), core.RoleAdmin); err != nil {
+		return fmt.Errorf("seed default admin: %w", err)
+	}
+	return nil
 }
 
 // CreateUser inserts a new login (used by the `create-user` CLI bootstrap).
