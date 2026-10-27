@@ -624,7 +624,7 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
     </select>
   </div>
   <div class="gb-db-server">Host: <input type="text" name="host"></div>
-  <div class="gb-db-server"><small>Banco rodando no mesmo servidor (fora de um container)? Use <code>host.docker.internal</code> em vez de <code>localhost</code>/<code>127.0.0.1</code> — dentro do container esse endereço aponta pra ele mesmo, não pro host. O banco também precisa aceitar conexão de fora do loopback (Postgres: <code>listen_addresses='*'</code> + liberar a rede docker no <code>pg_hba.conf</code>; MySQL/MariaDB: <code>bind-address=0.0.0.0</code>).</small></div>
+  <div class="gb-db-server"><small><b>Se este agente é Linux</b> (roda em container Docker) e o banco está no mesmo servidor (fora de um container): use <code>host.docker.internal</code> em vez de <code>localhost</code>/<code>127.0.0.1</code> — dentro do container esse endereço aponta pra ele mesmo, não pro host. O banco também precisa aceitar conexão de fora do loopback (Postgres: <code>listen_addresses='*'</code> + liberar a rede docker no <code>pg_hba.conf</code>; MySQL/MariaDB: <code>bind-address=0.0.0.0</code>). <b>Se este agente é Windows</b> (processo nativo, sem Docker): use <code>localhost</code>/<code>127.0.0.1</code> normalmente, sem nenhuma configuração extra.</small></div>
   <div class="gb-db-server">Porta: <input type="number" name="port"></div>
   <div class="gb-db-server">Usuário: <input type="text" name="username"></div>
   <div class="gb-db-server">Senha: <input type="password" name="password"></div>
@@ -802,7 +802,7 @@ var editDBTmpl = template.Must(template.New("edit-db").Funcs(funcs).Parse(`
     </select>
   </div>
   <div class="gb-db-server">Host: <input type="text" name="host" value="{{.Job.Host}}"></div>
-  <div class="gb-db-server"><small>Banco rodando no mesmo servidor (fora de um container)? Use <code>host.docker.internal</code> em vez de <code>localhost</code>/<code>127.0.0.1</code> — dentro do container esse endereço aponta pra ele mesmo, não pro host. O banco também precisa aceitar conexão de fora do loopback (Postgres: <code>listen_addresses='*'</code> + liberar a rede docker no <code>pg_hba.conf</code>; MySQL/MariaDB: <code>bind-address=0.0.0.0</code>).</small></div>
+  <div class="gb-db-server"><small><b>Se este agente é Linux</b> (roda em container Docker) e o banco está no mesmo servidor (fora de um container): use <code>host.docker.internal</code> em vez de <code>localhost</code>/<code>127.0.0.1</code> — dentro do container esse endereço aponta pra ele mesmo, não pro host. O banco também precisa aceitar conexão de fora do loopback (Postgres: <code>listen_addresses='*'</code> + liberar a rede docker no <code>pg_hba.conf</code>; MySQL/MariaDB: <code>bind-address=0.0.0.0</code>). <b>Se este agente é Windows</b> (processo nativo, sem Docker): use <code>localhost</code>/<code>127.0.0.1</code> normalmente, sem nenhuma configuração extra.</small></div>
   <div class="gb-db-server">Porta: <input type="number" name="port" value="{{.Job.Port}}"></div>
   <div class="gb-db-server">Usuário: <input type="text" name="username" value="{{.Job.Username}}"></div>
   <div class="gb-db-server">Senha (não é salva; preencha de novo se este job foi recriado com credencial nova): <input type="password" name="password"></div>
