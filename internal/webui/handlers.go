@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"html/template"
 	"net/http"
-	"path/filepath"
 	"strconv"
 	"time"
 
@@ -133,7 +132,16 @@ func (s *Site) handleBrowseJSON(w http.ResponseWriter, r *http.Request) {
 	if path == "" {
 		path = "/"
 	}
-	path = filepath.Clean(path)
+	// Deliberately NOT filepath.Clean'd here: that uses Linux path
+	// semantics ("/" separator) regardless of what OS the target agent
+	// actually runs. For a Windows agent that mangles ".."/drive-letter
+	// paths (e.g. "/C:/GoBackup/.." lexically collapses to "/C:", which
+	// then gets misread as the literal path "/C:" instead of "go up a
+	// level from C:\GoBackup"). Each agent's own list_dir implementation
+	// is responsible for cleaning the path using ITS OWN filesystem's
+	// rules (the Linux kernel already resolves ".." correctly via the
+	// normal open/readdir syscalls with no help needed; the Windows agent
+	// does its own volume-aware filepath.Clean — see cmd/winagent/dirlist.go).
 
 	entries, err := runner.ListDir(ctx, path)
 	resp := browseJSONResponse{Path: path, Entries: entries}

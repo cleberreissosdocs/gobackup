@@ -146,6 +146,9 @@ func dbJobResult(j Job) map[string]any {
 
 func (e *Executor) dispatch(cmd poller.QueuedCommand) (map[string]any, error) {
 	switch cmd.Type {
+	case "list_dir":
+		return listDir(cmd.Payload)
+
 	case "create_job":
 		kind := payloadStr(cmd.Payload, "kind")
 		switch kind {
