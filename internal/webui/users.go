@@ -84,7 +84,7 @@ func (s *Site) handleEditUserForm(w http.ResponseWriter, r *http.Request) {
 	}
 	s.renderPage(w, r, "Editar usuário", userFormTmpl, map[string]any{
 		"IsNew": false, "CSRF": s.Auth.CSRFToken(r),
-		"Action": fmt.Sprintf("/users/%s/edit", u.ID), "User": u,
+		"Action": fmt.Sprintf("/users/%s/edit", u.ID), "EditUser": u,
 	})
 }
 
@@ -108,7 +108,7 @@ func (s *Site) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 			if n, err := s.Auth.Store.CountAdmins(ctx); err == nil && n <= 1 {
 				s.renderPage(w, r, "Editar usuário", userFormTmpl, map[string]any{
 					"IsNew": false, "CSRF": s.Auth.CSRFToken(r),
-					"Action": fmt.Sprintf("/users/%s/edit", userID), "User": u,
+					"Action": fmt.Sprintf("/users/%s/edit", userID), "EditUser": u,
 					"Error": "Não é possível rebaixar o último administrador — crie outro admin antes.",
 				})
 				return
@@ -216,14 +216,14 @@ var userFormTmpl = template.Must(template.New("user-form").Funcs(usersFuncs).Par
   <div>E-mail: <input type="text" name="email" value="{{.Email}}" required></div>
   <div>Senha: <input type="password" name="password" required></div>
   {{else}}
-  <div>E-mail: <input type="text" value="{{.User.Email}}" disabled></div>
+  <div>E-mail: <input type="text" value="{{.EditUser.Email}}" disabled></div>
   <div>Nova senha <small>(deixe em branco para manter a atual)</small>: <input type="password" name="password"></div>
   {{end}}
   <div>Perfil:
     <select name="role">
-      <option value="admin" {{if and (not .IsNew) (eq .User.Role "admin")}}selected{{end}}>Administrador — acesso total, inclusive gerenciar usuários</option>
-      <option value="operator" {{if and (not .IsNew) (eq .User.Role "operator")}}selected{{end}}>Operador — cria/edita/executa tarefas, sem gerenciar usuários</option>
-      <option value="viewer" {{if and (not .IsNew) (eq .User.Role "viewer")}}selected{{end}}>Visualizador — apenas acompanha status e histórico</option>
+      <option value="admin" {{if and (not .IsNew) (eq .EditUser.Role "admin")}}selected{{end}}>Administrador — acesso total, inclusive gerenciar usuários</option>
+      <option value="operator" {{if and (not .IsNew) (eq .EditUser.Role "operator")}}selected{{end}}>Operador — cria/edita/executa tarefas, sem gerenciar usuários</option>
+      <option value="viewer" {{if and (not .IsNew) (eq .EditUser.Role "viewer")}}selected{{end}}>Visualizador — apenas acompanha status e histórico</option>
     </select>
   </div>
   <button type="submit">Salvar</button>
