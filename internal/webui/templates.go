@@ -146,6 +146,7 @@ var layoutTmpl = template.Must(template.New("layout").Parse(`<!doctype html>
 <head>
 <meta charset="utf-8">
 <title>{{.Title}}</title>
+<link rel="icon" href="/favicon.ico">
 <style>
 * { box-sizing: border-box; }
 :root {
@@ -185,7 +186,7 @@ header {
   position: sticky; top: 0; z-index: 10;
 }
 header > div:first-child a { display:flex; align-items:center; gap:0.55rem; font-weight:700; font-size:1.05rem; letter-spacing:-0.01em; }
-header > div:first-child a::before { content:""; width:10px; height:10px; border-radius:50%; background: var(--gb-accent); box-shadow: 0 0 10px 1px rgba(45,108,223,0.7); display:inline-block; }
+.gb-logo-sm { width:22px; height:22px; object-fit:contain; filter: drop-shadow(0 0 6px rgba(45,108,223,0.6)); }
 header a { color: var(--gb-text-muted); text-decoration: none; margin-right: 1.25rem; font-size: 0.92rem; transition: color .15s ease; }
 header a:hover { color: var(--gb-text); }
 header > div:last-child { display:flex; align-items:center; gap:0.9rem; font-size:0.88rem; color: var(--gb-text-muted); }
@@ -277,11 +278,19 @@ small { color: var(--gb-text-muted); }
 #gb-picker-list { overflow-y:auto; flex:1; margin:1rem 0; border:1px solid var(--gb-border); border-radius: var(--gb-radius-sm); padding:0.3rem; min-height: 200px; }
 .gb-picker-item { padding:0.4rem 0.6rem; cursor:pointer; border-radius: 6px; font-size:0.9rem; }
 .gb-picker-item:hover { background: var(--gb-card-2); }
+.gb-login-wrap { min-height: calc(100vh - 64px); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1.5rem; padding: 2rem 1rem; }
+.gb-login-card { width:100%; max-width: 380px; padding: 2.25rem 2rem; text-align:center; }
+.gb-login-logo { width: 84px; height: 84px; object-fit: contain; filter: drop-shadow(0 0 22px rgba(45,108,223,0.45)); margin-bottom: 0.75rem; }
+.gb-login-title { font-size: 1.7rem; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 0.35rem; }
+.gb-login-tagline { color: var(--gb-text-muted); font-size: 0.9rem; margin: 0 0 1.6rem; }
+.gb-login-card form { text-align: left; margin-top: 0.5rem; }
+.gb-login-card button[type=submit] { width: 100%; margin-top: 0.4rem; padding: 0.65rem; font-weight: 600; }
+.gb-login-footer { color: var(--gb-text-faint); font-size: 0.8rem; text-align:center; }
 </style>
 </head>
 <body>
 <header>
-  <div><a href="/">GoBackup</a></div>
+  <div><a href="/"><img src="/logo.png" class="gb-logo-sm" alt="GoBackup">GoBackup</a></div>
   <div>
     {{if .User}}<a href="/users">Usuários</a> {{if .ShowSettings}}<a href="/settings">Configurações</a>{{end}}{{.User}} — <form method="post" action="/logout" style="display:inline"><button type="submit">Sair</button></form>{{end}}
   </div>
@@ -535,13 +544,20 @@ function gbConfirmDeleteExtraneous(checkbox) {
 </html>`))
 
 var loginTmpl = template.Must(template.New("login").Parse(`
-<h1>Entrar</h1>
-{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
-<form method="post" action="/login">
-  <div>E-mail: <input type="text" name="email" required></div>
-  <div>Senha: <input type="password" name="password" required></div>
-  <button type="submit">Entrar</button>
-</form>
+<div class="gb-login-wrap">
+  <div class="gb-login-card gb-card">
+    <img src="/logo.png" class="gb-login-logo" alt="GoBackup">
+    <h1 class="gb-login-title">GoBackup</h1>
+    <p class="gb-login-tagline">Backup inteligente. Dados protegidos.</p>
+    {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+    <form method="post" action="/login">
+      <div>E-mail: <input type="text" name="email" required autofocus></div>
+      <div>Senha: <input type="password" name="password" required></div>
+      <button type="submit">Entrar</button>
+    </form>
+  </div>
+  <p class="gb-login-footer">Desenvolvido por Cleber Reis</p>
+</div>
 `))
 
 var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`

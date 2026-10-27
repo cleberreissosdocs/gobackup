@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cleber/gobackup/internal/webauth"
+	"github.com/cleber/gobackup/internal/webui/assets"
 )
 
 // Site wires the shared handlers to either local (agent) or remote
@@ -27,24 +28,36 @@ type Site struct {
 // Mount registers the shared admin screens under the given prefix pattern.
 // prefix must end without a trailing slash, e.g. "" or "/agents/{id}".
 func (s *Site) Mount(mux *http.ServeMux, prefix string) {
+	mux.HandleFunc("GET /logo.png", handleLogo)
+	mux.HandleFunc("GET /favicon.ico", handleFavicon)
 	mux.HandleFunc("GET /login", s.handleLoginForm)
 	mux.HandleFunc("POST /login", s.handleLoginSubmit)
 	mux.HandleFunc("POST /logout", s.handleLogout)
 
-	mux.HandleFunc("GET "+prefix+"/", s.Auth.RequireLogin(s.handleHome))
-	mux.HandleFunc("GET "+prefix+"/browse", s.Auth.RequireLogin(s.handleBrowse))
-	mux.HandleFunc("GET "+prefix+"/browse.json", s.Auth.RequireLogin(s.handleBrowseJSON))
-	mux.HandleFunc("POST "+prefix+"/jobs/file", s.Auth.RequireLoginAndCSRF(s.handleCreateFileJob))
-	mux.HandleFunc("POST "+prefix+"/jobs/db", s.Auth.RequireLoginAndCSRF(s.handleCreateDBJob))
-	mux.HandleFunc("GET "+prefix+"/jobs/{jobID}/edit", s.Auth.RequireLogin(s.handleEditJobForm))
-	mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/update", s.Auth.RequireLoginAndCSRF(s.handleUpdateJob))
-	mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/run", s.Auth.RequireLoginAndCSRF(s.handleRunJob))
-	mux.HandleFunc("GET "+prefix+"/jobs/{jobID}/progress", s.Auth.RequireLogin(s.handleViewProgress))
-	mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/delete", s.Auth.RequireLoginAndCSRF(s.handleDeleteJob))
-	mux.HandleFunc("GET "+prefix+"/jobs/{jobID}/status", s.Auth.RequireLogin(s.handleJobStatus))
-	mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/cancel", s.Auth.RequireLoginAndCSRF(s.handleCancelJob))
-	mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/pause", s.Auth.RequireLoginAndCSRF(s.handlePauseJob))
-	mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/resume", s.Auth.RequireLoginAndCSRF(s.handleResumeJob))
+	if s.IsCentral {
+		mux.HandleFunc("GET "+prefix+"/", s.Auth.RequireLogin(s.handleHome))
+		mux.HandleFunc("GET "+prefix+"/browse", s.Auth.RequireLogin(s.handleBrowse))
+		mux.HandleFunc("GET "+prefix+"/browse.json", s.Auth.RequireLogin(s.handleBrowseJSON))
+		mux.HandleFunc("POST "+prefix+"/jobs/file", s.Auth.RequireLoginAndCSRF(s.handleCreateFileJob))
+		mux.HandleFunc("POST "+prefix+"/jobs/db", s.Auth.RequireLoginAndCSRF(s.handleCreateDBJob))
+		mux.HandleFunc("GET "+prefix+"/jobs/{jobID}/edit", s.Auth.RequireLogin(s.handleEditJobForm))
+		mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/update", s.Auth.RequireLoginAndCSRF(s.handleUpdateJob))
+		mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/run", s.Auth.RequireLoginAndCSRF(s.handleRunJob))
+		mux.HandleFunc("GET "+prefix+"/jobs/{jobID}/progress", s.Auth.RequireLogin(s.handleViewProgress))
+		mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/delete", s.Auth.RequireLoginAndCSRF(s.handleDeleteJob))
+		mux.HandleFunc("GET "+prefix+"/jobs/{jobID}/status", s.Auth.RequireLogin(s.handleJobStatus))
+		mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/cancel", s.Auth.RequireLoginAndCSRF(s.handleCancelJob))
+		mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/pause", s.Auth.RequireLoginAndCSRF(s.handlePauseJob))
+		mux.HandleFunc("POST "+prefix+"/jobs/{jobID}/resume", s.Auth.RequireLoginAndCSRF(s.handleResumeJob))
+	} else {
+		// The agent's own local web UI is intentionally minimal: only
+		// pointing-at-Central settings and user management live here.
+		// Job creation/editing/running is done exclusively through the
+		// Central's per-agent remote admin screens now — these routes are
+		// not registered at all for the agent, so a direct URL hit 404s
+		// instead of silently still working with no link to reach it.
+		mux.HandleFunc("GET "+prefix+"/", s.Auth.RequireLogin(s.handleAgentHome))
+	}
 
 	mux.HandleFunc("GET /users", s.Auth.RequireLogin(s.handleUsersList))
 	mux.HandleFunc("GET /users/new", s.Auth.RequireLogin(s.handleNewUserForm))
@@ -56,6 +69,20 @@ func (s *Site) Mount(mux *http.ServeMux, prefix string) {
 
 func (s *Site) handleLoginForm(w http.ResponseWriter, r *http.Request) {
 	s.renderPage(w, r, "Login", loginTmpl, nil)
+}
+
+// handleAgentHome is the local agent's "/" — it carries no screen of its
+// own anymore (job management now lives only on the Central's per-agent
+// remote admin screens), so it just bounces straight to the settings page.
+// Because Go's ServeMux treats "GET /" as a path catch-all, this also 404s
+// any other path that used to be a job-management route instead of silently
+// redirecting it to settings.
+func (s *Site) handleAgentHome(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
 
 func (s *Site) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
@@ -72,6 +99,21 @@ func (s *Site) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 func (s *Site) handleLogout(w http.ResponseWriter, r *http.Request) {
 	s.Auth.Logout(w, r)
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+// handleLogo/handleFavicon serve the embedded shield artwork — unauthenticated
+// on purpose (the login page itself needs it before any session exists) and
+// long-cached since the binary embeds one fixed image per build.
+func handleLogo(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=604800")
+	w.Write(assets.LogoPNG)
+}
+
+func handleFavicon(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/x-icon")
+	w.Header().Set("Cache-Control", "public, max-age=604800")
+	w.Write(assets.FaviconICO)
 }
 
 func (s *Site) handleHome(w http.ResponseWriter, r *http.Request) {

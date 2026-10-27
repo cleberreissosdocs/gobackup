@@ -314,7 +314,7 @@ nav {
   position: sticky; top: 0; z-index: 10; margin-bottom: 0 !important;
 }
 nav > a:first-child { display:flex; align-items:center; gap:0.55rem; font-weight:700; font-size:1.05rem; letter-spacing:-0.01em; color: var(--gb-text); text-decoration:none; }
-nav > a:first-child::before { content:""; width:10px; height:10px; border-radius:50%; background: var(--gb-accent); box-shadow: 0 0 10px 1px rgba(45,108,223,0.7); display:inline-block; }
+nav > a:first-child img { width:22px; height:22px; object-fit:contain; filter: drop-shadow(0 0 6px rgba(45,108,223,0.6)); }
 nav a { color: var(--gb-text-muted); text-decoration: none; transition: color .15s ease; }
 nav a:hover { color: var(--gb-text); }
 form.logout { display:inline; margin-left: 1.25rem; }
@@ -380,10 +380,11 @@ var notificationsTmpl = template.Must(template.New("notifications").Parse(`<!doc
 <head>
 <meta charset="utf-8">
 <title>GoBackup Central — Canais de notificação</title>
+<link rel="icon" href="/favicon.ico">
 <style>` + gbCentralCSS + `</style>
 </head>
 <body>
-<nav><a href="/">GoBackup Central</a>
+<nav><a href="/"><img src="/logo.png" alt="">GoBackup Central</a>
 <div style="display:flex; align-items:center; gap:1.25rem;">
   <a href="/notifications">Canais de notificação</a>
   <a href="/dashboard">Dashboard</a>
@@ -480,6 +481,7 @@ var dashboardTmpl = template.Must(template.New("dashboard").Funcs(template.FuncM
 <meta charset="utf-8">
 <meta http-equiv="refresh" content="3">
 <title>GoBackup Central</title>
+<link rel="icon" href="/favicon.ico">
 <style>` + gbCentralCSS + `
 tr.gb-row-offline { color: var(--gb-text-faint); }
 tr.gb-row-offline td { color: var(--gb-text-faint); }
@@ -488,7 +490,7 @@ tr.gb-row-offline td { color: var(--gb-text-faint); }
 </style>
 </head>
 <body>
-<nav><a href="/">GoBackup Central</a>
+<nav><a href="/"><img src="/logo.png" alt="">GoBackup Central</a>
 <div style="display:flex; align-items:center; gap:1.25rem;">
   <a href="/notifications">Canais de notificação</a>
   <a href="/dashboard">Dashboard</a>
@@ -650,6 +652,7 @@ var healthDashboardTmpl = template.Must(template.New("health-dashboard").Parse(`
 <meta charset="utf-8">
 <meta http-equiv="refresh" content="3">
 <title>GoBackup Central — Dashboard</title>
+<link rel="icon" href="/favicon.ico">
 <style>
 * { box-sizing: border-box; }
 body {
@@ -657,7 +660,8 @@ body {
   background: radial-gradient(circle at 20% 0%, #1a1c24 0%, #0b0c10 55%);
   color: #eee; margin: 0; padding: 2.5rem;
 }
-nav { margin-bottom: 1.5rem; }
+nav { margin-bottom: 1.5rem; display:flex; align-items:center; gap:0.5rem; }
+nav img { width:18px; height:18px; object-fit:contain; filter: drop-shadow(0 0 5px rgba(45,108,223,0.6)); }
 nav a { color:#9ad1ff; text-decoration:none; }
 nav a:hover { text-decoration:underline; }
 form.logout { display:inline; margin-left: 1rem; }
@@ -706,7 +710,7 @@ h1 { margin: 0 0 0.3rem; font-weight: 700; letter-spacing: -0.02em; }
 </style>
 </head>
 <body>
-<nav><a href="/">&larr; GoBackup Central</a> · <a href="/notifications">Canais de notificação</a>
+<nav><img src="/logo.png" alt=""><a href="/">&larr; GoBackup Central</a> · <a href="/notifications">Canais de notificação</a>
 <form class="logout" method="post" action="/logout"><button type="submit">Sair</button></form></nav>
 <h1>Dashboard</h1>
 <p class="subtitle">Heartbeat e saúde de todos os servidores, em tempo real</p>
@@ -806,12 +810,13 @@ var renameAgentTmpl = template.Must(template.New("rename-agent").Parse(`<!doctyp
 <head>
 <meta charset="utf-8">
 <title>GoBackup Central — Renomear agente</title>
+<link rel="icon" href="/favicon.ico">
 <style>` + gbCentralCSS + `
 form { max-width:420px; }
 </style>
 </head>
 <body>
-<nav><a href="/">GoBackup Central</a></nav>
+<nav><a href="/"><img src="/logo.png" alt="">GoBackup Central</a></nav>
 <div id="gb-content">
 <h1>Renomear agente</h1>
 <fieldset>
