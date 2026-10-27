@@ -26,6 +26,17 @@ SetCompressor /SOLID lzma
 !define MUI_ICON "icons\gobackup.ico"
 !define MUI_UNICON "icons\gobackup.ico"
 
+; Branding: tall artwork on the Welcome/Finish pages, small logo+wordmark
+; in the header strip of every other page.
+!define MUI_WELCOMEFINISHPAGE_BITMAP "icons\welcome.bmp"
+!define MUI_UNWELCOMEFINISHPAGE_BITMAP "icons\welcome.bmp"
+!define MUI_HEADERIMAGE
+!define MUI_HEADERIMAGE_BITMAP "icons\header.bmp"
+!define MUI_HEADERIMAGE_UNBITMAP "icons\header.bmp"
+
+!define MUI_WELCOMEPAGE_TITLE "GoBackup"
+!define MUI_WELCOMEPAGE_TEXT "Backup inteligente. Dados protegidos.$\r$\n$\r$\nDesenvolvido por Cleber Reis.$\r$\n$\r$\nEste assistente vai instalar o GoBackup Agent neste computador. Clique em Avançar para continuar."
+
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
