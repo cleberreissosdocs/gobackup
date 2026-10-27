@@ -107,7 +107,7 @@ func UploadFile(host string, port int, user, keyPath, localPath, remoteDir strin
 // the local source tree and uploads anything missing/changed on the remote
 // side (size+mtime quick-check), optionally deleting remote files that no
 // longer exist locally.
-func MirrorSSH(ctx context.Context, src, host string, port int, user, keyPath, remoteDest string, deleteExtraneous bool, onProgress MirrorProgress) (MirrorResult, error) {
+func MirrorSSH(ctx context.Context, src, host string, port int, user, keyPath, remoteDest string, deleteExtraneous bool, onProgress MirrorProgress, waitIfPaused func(context.Context)) (MirrorResult, error) {
 	client, sc, err := sshConnect(host, port, user, keyPath)
 	if err != nil {
 		return MirrorResult{}, err
@@ -183,6 +183,9 @@ func MirrorSSH(ctx context.Context, src, host string, port int, user, keyPath, r
 		case <-ctx.Done():
 			return MirrorResult{FilesCopied: copiedCount, BytesCopied: copiedBytes, FilesSkipped: skipped}, ctx.Err()
 		default:
+		}
+		if waitIfPaused != nil {
+			waitIfPaused(ctx)
 		}
 		n, copyErr := uploadOne(sc, j.srcPath, j.remotePath)
 		if copyErr != nil {

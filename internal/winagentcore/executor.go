@@ -327,18 +327,26 @@ func (e *Executor) runFileJob(j Job) {
 		if filesTotal > 0 {
 			pct = filesDone * 100 / filesTotal
 		}
-		if jc.Pause != nil {
-			jc.Pause.Wait(ctx) // blocks here between files while paused
-		}
 		e.Registry.Set(j.ID, RunState{Status: "running", Percent: pct, Message: fmt.Sprintf("%d/%d arquivos — %s", filesDone, filesTotal, currentFile)})
+	}
+	// Must run unconditionally for EVERY file, from every concurrent
+	// worker -- unlike progress(), which throttles UI updates to one per
+	// 200ms. A job copying hundreds of small files per worker per tick
+	// would blow straight through a Pause if the wait were buried inside
+	// that throttled callback (confirmed live: Pause accepted but the
+	// copy kept progressing to completion).
+	waitIfPaused := func(ctx context.Context) {
+		if jc.Pause != nil {
+			jc.Pause.Wait(ctx)
+		}
 	}
 
 	var result MirrorResult
 	var err error
 	if j.DestType == "ssh" {
-		result, err = MirrorSSH(ctx, j.Source, j.SSHHost, j.SSHPort, j.SSHUser, j.SSHKey, j.Dest, j.DeleteExtraneous, progress)
+		result, err = MirrorSSH(ctx, j.Source, j.SSHHost, j.SSHPort, j.SSHUser, j.SSHKey, j.Dest, j.DeleteExtraneous, progress, waitIfPaused)
 	} else {
-		result, err = Mirror(ctx, j.Source, j.Dest, j.DeleteExtraneous, progress)
+		result, err = Mirror(ctx, j.Source, j.Dest, j.DeleteExtraneous, progress, waitIfPaused)
 	}
 
 	if err != nil {

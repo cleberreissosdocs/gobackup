@@ -45,7 +45,7 @@ type MirrorResult struct {
 // already identical by size+modtime (the same quick-check heuristic rsync
 // uses by default), and — if deleteExtraneous — removes anything under dst
 // that no longer exists under src, so dst ends up an exact mirror of src.
-func Mirror(ctx context.Context, src, dst string, deleteExtraneous bool, onProgress MirrorProgress) (MirrorResult, error) {
+func Mirror(ctx context.Context, src, dst string, deleteExtraneous bool, onProgress MirrorProgress, waitIfPaused func(context.Context)) (MirrorResult, error) {
 	src = filepath.Clean(src)
 	dst = filepath.Clean(dst)
 
@@ -141,6 +141,14 @@ func Mirror(ctx context.Context, src, dst string, deleteExtraneous bool, onProgr
 					mu.Unlock()
 					continue
 				default:
+				}
+				// Checked unconditionally per file, independent of the UI
+				// progress throttle below (and of every other concurrent
+				// worker) -- a 200ms-throttled check here would let a job
+				// copying hundreds of small files per worker per tick blow
+				// straight through a Pause with the UI never even noticing.
+				if waitIfPaused != nil {
+					waitIfPaused(ctx)
 				}
 				n, copyErr := copyOneFile(j.srcPath, j.dstPath)
 				mu.Lock()

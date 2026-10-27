@@ -296,9 +296,9 @@ func cmdLocalRunJob(args []string) {
 	}
 	var result winagentcore.MirrorResult
 	if target.DestType == "ssh" {
-		result, err = winagentcore.MirrorSSH(context.Background(), target.Source, target.SSHHost, target.SSHPort, target.SSHUser, target.SSHKey, target.Dest, target.DeleteExtraneous, progress)
+		result, err = winagentcore.MirrorSSH(context.Background(), target.Source, target.SSHHost, target.SSHPort, target.SSHUser, target.SSHKey, target.Dest, target.DeleteExtraneous, progress, nil)
 	} else {
-		result, err = winagentcore.Mirror(context.Background(), target.Source, target.Dest, target.DeleteExtraneous, progress)
+		result, err = winagentcore.Mirror(context.Background(), target.Source, target.Dest, target.DeleteExtraneous, progress, nil)
 	}
 	fmt.Println()
 	if err != nil {
