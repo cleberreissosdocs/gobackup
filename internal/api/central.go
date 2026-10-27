@@ -471,7 +471,9 @@ func (s *Server) handleNotificationsSubmit(w http.ResponseWriter, r *http.Reques
 	notificationsTmpl.Execute(w, map[string]any{"Message": "Canal adicionado com sucesso.", "CSRF": s.Auth.CSRFToken(r)})
 }
 
-var dashboardTmpl = template.Must(template.New("dashboard").Parse(`<!doctype html>
+var dashboardTmpl = template.Must(template.New("dashboard").Funcs(template.FuncMap{
+	"humanizeCron": webui.HumanizeCron,
+}).Parse(`<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -528,7 +530,7 @@ tr.gb-row-offline td { color: var(--gb-text-faint); }
   <td>{{.AgentName}}{{if not .AgentOnline}} <small>(offline)</small>{{end}}</td>
   <td>{{.Name}}{{if not .Enabled}} <small>(desabilitada)</small>{{end}}</td>
   <td>{{if eq .Kind "files"}}Arquivos{{else}}Banco de dados{{end}}</td>
-  <td>{{if .Cron}}{{.Cron}}{{else}}<small>manual</small>{{end}}</td>
+  <td>{{if .Cron}}{{humanizeCron .Cron}}{{else}}<small>manual</small>{{end}}</td>
   <td>{{if eq .JobStatus "running"}}<a href="/agents/{{.AgentID}}/jobs/{{.JobID}}/progress" class="status-running">Executando</a>{{else if eq .JobStatus "success"}}<span class="status-success">sucesso</span>{{else if eq .JobStatus "failed"}}<span class="status-failed">falhou</span>{{else}}<small>nunca executada</small>{{end}}</td>
   <td style="white-space:nowrap;">
     {{if .AgentOnline}}

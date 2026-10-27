@@ -1,8 +1,75 @@
 package webui
 
-import "html/template"
+import (
+	"fmt"
+	"html/template"
+	"strconv"
+	"strings"
+)
+
+var cronWeekdayNames = []string{"Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"}
+
+// humanizeCron turns a raw 5-field cron expression into a short, plain
+// Portuguese sentence — mirroring the same patterns the scheduleBuilder
+// widget itself can produce (daily/weekly/monthly at a fixed time), so a
+// schedule set up via the button widget reads back the same way it was
+// described while being built. Anything outside those shapes (typed in
+// via "Avançado") still shows the raw cron, clearly labeled as such,
+// rather than silently hiding it.
+func humanizeCron(cron string) string {
+	cron = strings.TrimSpace(cron)
+	if cron == "" {
+		return "manual"
+	}
+	fields := strings.Fields(cron)
+	if len(fields) != 5 {
+		return "Agendamento personalizado: " + cron
+	}
+	min, hour, dom, mon, dow := fields[0], fields[1], fields[2], fields[3], fields[4]
+
+	minN, minErr := strconv.Atoi(min)
+	hourN, hourErr := strconv.Atoi(hour)
+	if minErr != nil || hourErr != nil {
+		return "Agendamento personalizado: " + cron
+	}
+	timeStr := fmt.Sprintf("%02d:%02d", hourN, minN)
+
+	switch {
+	case dom == "*" && mon == "*" && dow == "*":
+		return "Roda todo dia às " + timeStr + "."
+
+	case dom == "*" && mon == "*" && dow != "*":
+		dayParts := strings.Split(dow, ",")
+		names := make([]string, 0, len(dayParts))
+		for _, d := range dayParts {
+			n, err := strconv.Atoi(strings.TrimSpace(d))
+			if err != nil || n < 0 || n > 6 {
+				return "Agendamento personalizado: " + cron
+			}
+			names = append(names, cronWeekdayNames[n])
+		}
+		return "Roda toda(o) " + strings.Join(names, ", ") + " às " + timeStr + "."
+
+	case dom != "*" && mon == "*" && dow == "*":
+		if _, err := strconv.Atoi(dom); err != nil {
+			return "Agendamento personalizado: " + cron
+		}
+		return "Roda todo dia " + dom + " do mês às " + timeStr + "."
+
+	default:
+		return "Agendamento personalizado: " + cron
+	}
+}
+
+// HumanizeCron is the exported form of humanizeCron, used by the Central's
+// own combined-jobs-table template (internal/api/central.go), which lives
+// in a different package.
+func HumanizeCron(cron string) string {
+	return humanizeCron(cron)
+}
 
 var funcs = template.FuncMap{
+	"humanizeCron": humanizeCron,
 	"fmtTime": func(t interface{}) string {
 		type timeLike interface{ Format(string) string }
 		if tl, ok := t.(timeLike); ok {
@@ -615,7 +682,7 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
 <tr>
   <td>{{.Name}}{{if not .Enabled}} <small>(desabilitada)</small>{{end}}</td>
   <td>{{if eq .Kind "files"}}Arquivos{{else}}Banco de dados{{end}}</td>
-  <td>{{if .Cron}}{{.Cron}}{{else}}<small>manual</small>{{end}}</td>
+  <td>{{if .Cron}}{{humanizeCron .Cron}}{{else}}<small>manual</small>{{end}}</td>
   <td>{{if eq .Status "running"}}<a href="{{$.Base}}/jobs/{{.ID}}/progress" class="status-running">Executando</a>{{else if eq .Status "success"}}<span class="status-success">sucesso</span>{{else if eq .Status "failed"}}<span class="status-failed">falhou</span>{{else}}<small>nunca executada</small>{{end}}</td>
   <td style="white-space:nowrap;">
     <a href="{{$.Base}}/jobs/{{.ID}}/edit">Editar</a>
