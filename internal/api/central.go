@@ -1063,7 +1063,7 @@ func (s *Server) handleAgentTimeline(w http.ResponseWriter, r *http.Request) {
 
 	rangeLabel := ""
 	if hasData {
-		rangeLabel = fmt.Sprintf("%s — %s", rangeStart.Local().Format("02/01/2006"), rangeEnd.Local().Format("02/01/2006"))
+		rangeLabel = fmt.Sprintf("%s — %s", rangeStart.Local().Format("02/01/2006 15:04"), rangeEnd.Local().Format("02/01/2006 15:04"))
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
