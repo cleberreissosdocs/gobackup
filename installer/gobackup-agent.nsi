@@ -1,9 +1,12 @@
 ; GoBackup Windows Agent — installer
 ; Builds a single setup.exe that installs:
 ;   - gobackup-winagent-tray.exe (desktop app: tray icon + local config page)
-;   - gobackup-winagent.exe      (CLI, for headless/server use under a
-;                                 Scheduled Task — see README)
-; and makes the tray app launch automatically at every login.
+;   - gobackup-winagent.exe      (CLI + the actual Windows Service binary)
+; and registers gobackup-winagent as a real Windows Service (Local System,
+; auto-start) so backups and the Central connection keep working even with
+; nobody logged into the machine — the tray app is just a convenience UI
+; for whoever IS logged in, launched at every login, but it no longer does
+; the real work itself (see cmd/winagent-tray/main.go).
 ;
 ; Build (from Linux or Windows, with makensis installed):
 ;   makensis installer/gobackup-agent.nsi
@@ -64,8 +67,10 @@ Section "Instalar" SEC01
     File "gobackup-winagent-tray.exe"
     File "icons\gobackup.ico"
 
-    ; Autostart: launch the tray app for every user who logs in. HKLM Run
-    ; (not HKCU) so it works regardless of which user installed it.
+    ; Autostart: launch the tray app for every user who logs in (status
+    ; display + config UI only now — the real work happens in the Windows
+    ; Service installed below, regardless of whether anyone ever logs in).
+    ; HKLM Run (not HKCU) so it works regardless of which user installed it.
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "GoBackupAgent" '"$INSTDIR\gobackup-winagent-tray.exe"'
 
     ; Start Menu shortcut
@@ -82,10 +87,20 @@ Section "Instalar" SEC01
     WriteRegStr HKLM "Software\${APP_DIR}" "InstallDir" "$INSTDIR"
 
     WriteUninstaller "$INSTDIR\uninstall.exe"
+
+    ; Register + start the real Windows Service — this is what makes
+    ; backups and the Central connection survive a reboot with nobody
+    ; logged in. Runs after the uninstaller is written so a failure here
+    ; still leaves the install in a cleanly uninstallable state.
+    nsExec::ExecToLog '"$INSTDIR\gobackup-winagent.exe" service-install'
 SectionEnd
 
 Section "Uninstall"
     SetRegView 64
+    ; Stop and remove the Windows Service FIRST — otherwise the service
+    ; keeps gobackup-winagent.exe open and the Delete below fails.
+    nsExec::ExecToLog '"$INSTDIR\gobackup-winagent.exe" service-uninstall'
+
     ; Stop a running tray instance before removing its file (Windows
     ; refuses to delete the .exe of a process that's still executing).
     nsExec::Exec 'taskkill /F /IM gobackup-winagent-tray.exe'

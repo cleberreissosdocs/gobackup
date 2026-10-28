@@ -28,6 +28,12 @@ func main() {
 		cmdRegister(os.Args[2:])
 	case "serve":
 		cmdServe(os.Args[2:])
+	case "service-install":
+		cmdServiceInstall()
+	case "service-uninstall":
+		cmdServiceUninstall()
+	case "service-run":
+		cmdServiceRun(os.Args[2:])
 	case "unregister", "disconnect":
 		cmdUnregister()
 	case "status":
@@ -61,10 +67,20 @@ Usage:
 
   gobackup-winagent serve
       Runs the heartbeat loop in the foreground (1s interval, same as the
-      Linux agent) using the saved registration. Ctrl+C to stop. Run this
-      under a Scheduled Task to keep it running unattended on a server.
-      For a desktop machine, use gobackup-winagent-tray instead — it shows
-      a tray icon and needs no terminal window.
+      Linux agent) using the saved registration. Ctrl+C to stop. For
+      unattended servers, prefer "service-install" below instead — this
+      only keeps running while someone is watching this terminal.
+
+  gobackup-winagent service-install
+      Registers and starts gobackup-winagent as a real Windows Service
+      (Local System, starts automatically at boot) — this is what makes
+      the agent keep polling the Central and running scheduled backups
+      with NOBODY logged into the machine, surviving reboots. Run as
+      Administrator. The official installer does this automatically.
+
+  gobackup-winagent service-uninstall
+      Stops and removes the Windows Service (does not touch the saved
+      registration or job definitions). Run as Administrator.
 
   gobackup-winagent status
       Shows the saved registration and does one test heartbeat.
@@ -161,6 +177,7 @@ func cmdServe(args []string) {
 
 	fmt.Printf("gobackup-winagent: iniciando heartbeat a cada %s (Ctrl+C para parar)\n", interval.String())
 	winagentcore.RunLoop(*interval, func(r winagentcore.TickResult) {
+		winagentcore.SaveStatus(r)
 		ts := time.Now().Format(time.RFC3339)
 		switch {
 		case !r.Configured:

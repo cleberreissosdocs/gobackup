@@ -87,25 +87,47 @@ func onReady() {
 	// Local-only config page — never bound to anything but loopback.
 	go runConfigServer()
 
-	// Same heartbeat engine `serve` uses, just reporting into the tray
-	// instead of a terminal.
-	go winagentcore.RunLoop(time.Second, func(r winagentcore.TickResult) {
-		lastTick = r
-		switch {
-		case !r.Configured:
-			systray.SetIcon(iconRed)
-			systray.SetTooltip("GoBackup: não configurado — clique em Configurações")
-			mStatus.SetTitle("Status: não configurado")
-		case r.Err != nil:
-			systray.SetIcon(iconRed)
-			systray.SetTooltip("GoBackup: desconectado — " + r.Err.Error())
-			mStatus.SetTitle("Status: desconectado")
-		case r.Connected:
-			systray.SetIcon(iconGreen)
-			systray.SetTooltip("GoBackup: conectado")
-			mStatus.SetTitle("Status: conectado (" + time.Now().Format("15:04:05") + ")")
+	// The ACTUAL heartbeat/backup loop now runs in the Windows Service
+	// (see cmd/winagent's service-run), so it keeps working with nobody
+	// logged in — that's the whole point. The tray only ever DISPLAYS
+	// status here; it must never also run winagentcore.RunLoop itself,
+	// or two independent pollers would both execute whatever commands
+	// the Central sends (duplicate/conflicting backup runs).
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			cfg, _ := winagentcore.LoadConfig()
+			snap, fresh := winagentcore.LoadStatus()
+			switch {
+			case !cfg.IsConfigured():
+				lastTick = winagentcore.TickResult{Configured: false}
+				systray.SetIcon(iconRed)
+				systray.SetTooltip("GoBackup: não configurado — clique em Configurações")
+				mStatus.SetTitle("Status: não configurado")
+			case !fresh:
+				lastTick = winagentcore.TickResult{Configured: true}
+				systray.SetIcon(iconRed)
+				systray.SetTooltip("GoBackup: serviço não está rodando — veja 'service-install'")
+				mStatus.SetTitle("Status: serviço não está rodando")
+			case snap.Err != nil:
+				lastTick = snap.TickResult
+				systray.SetIcon(iconRed)
+				systray.SetTooltip("GoBackup: desconectado — " + snap.Err.Error())
+				mStatus.SetTitle("Status: desconectado")
+			case snap.Connected:
+				lastTick = snap.TickResult
+				systray.SetIcon(iconGreen)
+				systray.SetTooltip("GoBackup: conectado")
+				mStatus.SetTitle("Status: conectado (" + snap.UpdatedAt.Format("15:04:05") + ")")
+			}
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+			}
 		}
-	}, stop)
+	}()
 
 	go func() {
 		for {
