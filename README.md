@@ -65,6 +65,32 @@ AGENT_HOSTNAME=srv-financeiro AGENT_WEB_PORT=61082 curl -fsSL \
   | bash
 ```
 
+Manuais em PDF, passo a passo com capturas de tela:
+[instalador automático](docs/manuais/GoBackup-Manual-Script-Instalacao-Automatica.pdf) ·
+[instalação manual via Docker](docs/manuais/GoBackup-Manual-Instalacao-Agente-Linux-Docker.pdf)
+
+### Agente Windows
+
+Baixe o instalador (Windows 10/11, 64 bits):
+[**gobackup-agent-setup.exe**](https://github.com/cleberreissosdocs/gobackup/releases/download/windows-agent-v1/gobackup-agent-setup.exe)
+
+Dê duplo clique, siga o assistente (o Windows pode avisar via SmartScreen
+na primeira execução — clique em "Mais informações" → "Executar assim
+mesmo", é normal para um instalador interno sem assinatura paga). Ao
+terminar, o GoBackup fica rodando como ícone na bandeja do sistema e já
+inicia sozinho com o Windows.
+
+Clique com o botão direito no ícone → **Configurações** (abre no
+navegador) e entre com a senha padrão `admin` (troque em seguida, tem
+botão próprio pra isso). Lá você informa o endereço do Central de cima e
+clica em "Registrar" — o ícone fica verde assim que conectar.
+
+Manual completo com screenshots de cada tela:
+[`docs/manuais/GoBackup-Manual-Instalacao-Agente-Windows.pdf`](docs/manuais/GoBackup-Manual-Instalacao-Agente-Windows.pdf) —
+ou gere o instalador você mesmo a partir do código-fonte
+(`installer/gobackup-agent.nsi`, precisa de `makensis` e dos binários
+`cmd/winagent` e `cmd/winagent-tray` cross-compilados para Windows).
+
 Prefere instalar manualmente (Docker passo a passo, ou nativo sem Docker)?
 Veja as seções **Deploy com Docker** e **Deploy nativo** mais abaixo.
 
