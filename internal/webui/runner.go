@@ -85,6 +85,13 @@ type JobSummary struct {
 	// to the live progress page. Otherwise "success"/"failed", or "" if the
 	// job has never run.
 	Status string
+	// Percent is the live progress of a RUNNING job (0-100), shown as a
+	// small number under "Executando" in the list so a glance tells you
+	// how far along it is without opening the progress page. Meaningless
+	// (and not rendered) when Status != "running"; -1 means indeterminate
+	// (e.g. a database dump mid-flight, which has no byte/file count to
+	// derive a percentage from).
+	Percent int
 }
 
 // ProgressInfo is what the "Executar" progress bar polls.

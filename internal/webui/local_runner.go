@@ -160,7 +160,13 @@ func (r *LocalRunner) ListJobs(ctx context.Context) ([]JobSummary, error) {
 	}
 	out := make([]JobSummary, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, JobSummary{ID: row.ID.String(), Name: row.Name, Kind: row.Kind, Cron: row.Cron, Enabled: row.Enabled, Status: row.LastStatus})
+		s := JobSummary{ID: row.ID.String(), Name: row.Name, Kind: row.Kind, Cron: row.Cron, Enabled: row.Enabled, Status: row.LastStatus}
+		if s.Status == "running" {
+			if live, ok := r.Registry.Get(s.ID); ok {
+				s.Percent = live.Percent
+			}
+		}
+		out = append(out, s)
 	}
 	return out, nil
 }

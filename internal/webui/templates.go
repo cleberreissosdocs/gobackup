@@ -243,6 +243,7 @@ a.status-running:hover { filter: brightness(1.15); }
 .status-success { color: var(--gb-success); background: var(--gb-success-bg); }
 .status-failed { color: var(--gb-danger); background: var(--gb-danger-bg); }
 .status-pending, .status-running, .status-acked, .status-delivered { color: var(--gb-warning); background: var(--gb-warning-bg); }
+.status-percent { display: block; font-size: 0.68rem; font-weight: 400; color: var(--gb-muted, #888); line-height: 1.3; margin-top: 1px; }
 .error { color: var(--gb-danger); }
 .dir { color: #7fb4f5; }
 .gb-sched { max-width: 560px; background: var(--gb-bg-elev); border:1px solid var(--gb-border); border-radius: var(--gb-radius-sm); padding:1rem; margin-top:0.3rem; }
@@ -700,7 +701,7 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
   <td>{{.Name}}{{if not .Enabled}} <small>(desabilitada)</small>{{end}}</td>
   <td>{{if eq .Kind "files"}}Arquivos{{else}}Banco de dados{{end}}</td>
   <td>{{if .Cron}}{{humanizeCron .Cron}}{{else}}<small>manual</small>{{end}}</td>
-  <td>{{if eq .Status "running"}}<a href="{{$.Base}}/jobs/{{.ID}}/progress" class="status-running">Executando</a>{{else if eq .Status "success"}}<span class="status-success">sucesso</span>{{else if eq .Status "failed"}}<span class="status-failed">falhou</span>{{else}}<small>nunca executada</small>{{end}}</td>
+  <td>{{if eq .Status "running"}}<a href="{{$.Base}}/jobs/{{.ID}}/progress" class="status-running">Executando</a>{{if ge .Percent 0}}<small class="status-percent">{{.Percent}}%</small>{{end}}{{else if eq .Status "success"}}<span class="status-success">sucesso</span>{{else if eq .Status "failed"}}<span class="status-failed">falhou</span>{{else}}<small>nunca executada</small>{{end}}</td>
   <td style="white-space:nowrap;">
     <a href="{{$.Base}}/jobs/{{.ID}}/edit">Editar</a>
     <form method="post" action="{{$.Base}}/jobs/{{.ID}}/run" style="display:inline-flex; gap:0.5rem; align-items:center; margin-left:0.8rem">

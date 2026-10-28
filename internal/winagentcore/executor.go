@@ -251,10 +251,17 @@ func (e *Executor) dispatch(cmd poller.QueuedCommand) (map[string]any, error) {
 			Cron       string `json:"cron"`
 			Enabled    bool   `json:"enabled"`
 			LastStatus string `json:"last_status"`
+			Percent    int    `json:"percent,omitempty"`
 		}
 		list := make([]jobEntry, 0, len(jobs))
 		for _, j := range jobs {
-			list = append(list, jobEntry{ID: j.ID, Name: j.Name, Kind: j.Kind, Cron: j.Cron, Enabled: j.Enabled, LastStatus: j.LastStatus})
+			entry := jobEntry{ID: j.ID, Name: j.Name, Kind: j.Kind, Cron: j.Cron, Enabled: j.Enabled, LastStatus: j.LastStatus}
+			if entry.LastStatus == "running" {
+				if live, ok := e.Registry.Get(entry.ID); ok {
+					entry.Percent = live.Percent
+				}
+			}
+			list = append(list, entry)
 		}
 		return map[string]any{"jobs": list}, nil
 

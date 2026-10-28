@@ -304,10 +304,17 @@ func (e *Executor) listJobs(ctx context.Context) (map[string]any, error) {
 		Cron       string `json:"cron"`
 		Enabled    bool   `json:"enabled"`
 		LastStatus string `json:"last_status"`
+		Percent    int    `json:"percent,omitempty"`
 	}
 	list := make([]jobEntry, 0, len(rows))
 	for _, row := range rows {
-		list = append(list, jobEntry{ID: row.ID.String(), Name: row.Name, Kind: row.Kind, Cron: row.Cron, Enabled: row.Enabled, LastStatus: row.LastStatus})
+		entry := jobEntry{ID: row.ID.String(), Name: row.Name, Kind: row.Kind, Cron: row.Cron, Enabled: row.Enabled, LastStatus: row.LastStatus}
+		if entry.LastStatus == "running" {
+			if live, ok := e.Registry.Get(entry.ID); ok {
+				entry.Percent = live.Percent
+			}
+		}
+		list = append(list, entry)
 	}
 	return map[string]any{"jobs": list}, nil
 }
