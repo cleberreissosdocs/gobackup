@@ -140,6 +140,51 @@ func scanLinesOrCR(data []byte, atEOF bool) (advance int, token []byte, err erro
 	return 0, nil, nil
 }
 
+// progress2LineRe parses rsync --info=progress2's aggregate progress line,
+// e.g.:
+//
+//	8,062,193,286  2%  136.33MB/s    0:40:48 (xfr#153, to-chk=1234543/9876543)
+//
+// Fields (per rsync's own docs): total bytes transferred so far, percent of
+// the estimated total, current transfer rate, and elapsed time since the
+// transfer started -- NOT files transferred, and NOT remaining time, a
+// common misreading of that 4th column.
+var progress2LineRe = regexp.MustCompile(`^\s*([\d,]+)\s+(\d+)%\s+(\S+/s)\s+([\d:]+)(?:\s+\(xfr#(\d+), (?:ir|to)-chk=(\d+)/(\d+)\))?\s*$`)
+
+// humanizeProgressLine turns rsync's raw, column-aligned progress2 line
+// (meant for a terminal, not an end user) into a short human sentence for
+// the web UI's progress message -- e.g. a user reported seeing the literal
+// "8,062,193,286  2%  136.33MB/s    0:40:48" and understandably couldn't
+// tell that was a percentage at all. Falls back to the raw line unchanged
+// for anything that isn't a progress2 column line (per-file "building file
+// list..."/summary lines, warnings, etc.), so nothing is ever hidden.
+func humanizeProgressLine(line string) string {
+	m := progress2LineRe.FindStringSubmatch(line)
+	if m == nil {
+		return line
+	}
+	bytesDone := parseCount(m[1])
+	percent, rate, elapsed := m[2], m[3], m[4]
+	msg := fmt.Sprintf("%s%% concluído — %s transferidos — %s — decorrido %s", percent, humanizeBytes(bytesDone), rate, elapsed)
+	if m[5] != "" && m[7] != "" {
+		msg += fmt.Sprintf(" — %s de %s arquivos restantes", m[6], m[7])
+	}
+	return msg
+}
+
+func humanizeBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for v := n / unit; v >= unit; v /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.2f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+}
+
 // Run executes an rsync file-tree backup from sourcePath to dest.
 //
 // backupType controls the rsync flags used:
@@ -231,7 +276,7 @@ func Run(ctx context.Context, sourcePath string, dest Destination, backupType co
 					pct = n
 				}
 			}
-			onProgress(pct, line)
+			onProgress(pct, humanizeProgressLine(line))
 		}
 	}
 	if err := scanner.Err(); err != nil {
