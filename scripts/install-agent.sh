@@ -3,7 +3,20 @@
 #
 # Uso recomendado (um comando só, numa máquina nova):
 #
-#   curl -fsSL https://raw.githubusercontent.com/cleberreissosdocs/gobackup/main/scripts/install-agent.sh | bash
+#   curl -fsSL -o /tmp/gobackup-install.sh \
+#     https://raw.githubusercontent.com/cleberreissosdocs/gobackup/main/scripts/install-agent.sh \
+#     && bash /tmp/gobackup-install.sh
+#
+# Por que baixar para um arquivo em vez do clássico "curl | bash" direto:
+# se a conexão cair ou engasgar bem no meio do download do SCRIPT em si
+# (não da instalação — do próprio texto do script), "curl | bash" executa
+# o bash incrementalmente conforme os bytes chegam, então ele simplesmente
+# PARA no ponto exato onde a transferência foi cortada — sem erro nenhum,
+# com código de saída 0, parecendo que travou ou terminou silenciosamente
+# no meio. Baixando para um arquivo primeiro, "curl -f" detecta de verdade
+# uma transferência incompleta (via Content-Length) e falha alto antes de
+# executar qualquer coisa — o "&&" garante que um download cortado nunca
+# roda um script pela metade.
 #
 # Ou, se você já clonou o repositório:
 #

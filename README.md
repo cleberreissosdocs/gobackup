@@ -62,18 +62,32 @@ senha de banco de dados forte e única, sobe tudo e deixa pronto pro
 primeiro login — tudo com um único comando:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cleberreissosdocs/gobackup/main/scripts/install-agent.sh | bash
+curl -fsSL -o /tmp/gobackup-install.sh \
+  https://raw.githubusercontent.com/cleberreissosdocs/gobackup/main/scripts/install-agent.sh \
+  && bash /tmp/gobackup-install.sh
 ```
 
-> A primeira instalação compila a imagem do agente do zero (baixa
+> Por que baixar pra um arquivo em vez do clássico `curl | bash` direto: se
+> a conexão cair bem no meio do download do **script em si** (não da
+> instalação — do texto do script), o `bash` executa conforme os bytes vão
+> chegando e simplesmente **para no ponto exato onde cortou, sem erro
+> nenhum, com código de saída 0** — parece que travou, mas na real terminou
+> escondido no meio. Baixando pra um arquivo primeiro, o `curl -f` detecta
+> de verdade um download incompleto e falha alto, então o `&&` garante que
+> nunca roda um script cortado pela metade.
+>
+> A primeira instalação também compila a imagem do agente do zero (baixa
 > dependências, instala pacotes) — pode levar alguns minutos sem mostrar
 > muita coisa nova na tela, isso é normal, não travou. Se a sua conexão
 > SSH até o servidor for instável (VPN, túnel, link ruim), rode dentro de
-> um `tmux`/`screen` para a instalação continuar mesmo se a sessão cair:
+> um `tmux`/`screen` também, pra instalação continuar mesmo se a sessão
+> cair:
 > ```bash
 > ssh usuario@servidor
 > tmux new -s gobackup
-> curl -fsSL https://raw.githubusercontent.com/cleberreissosdocs/gobackup/main/scripts/install-agent.sh | bash
+> curl -fsSL -o /tmp/gobackup-install.sh \
+>   https://raw.githubusercontent.com/cleberreissosdocs/gobackup/main/scripts/install-agent.sh \
+>   && bash /tmp/gobackup-install.sh
 > # se a conexão cair: reconecte e rode "tmux attach -t gobackup" para ver onde ficou
 > ```
 > O script é seguro para rodar de novo caso precise — ele detecta o que já
@@ -96,9 +110,9 @@ Personalização opcional (defina a variável antes do `curl`):
 | `BACKUP_SOURCE_DIR` | Pasta usada para os backups | `INSTALL_DIR/backups` |
 
 ```bash
-AGENT_HOSTNAME=srv-financeiro AGENT_WEB_PORT=61082 curl -fsSL \
+curl -fsSL -o /tmp/gobackup-install.sh \
   https://raw.githubusercontent.com/cleberreissosdocs/gobackup/main/scripts/install-agent.sh \
-  | bash
+  && AGENT_HOSTNAME=srv-financeiro AGENT_WEB_PORT=61082 bash /tmp/gobackup-install.sh
 ```
 
 Manuais em PDF, passo a passo com capturas de tela:
