@@ -8,7 +8,31 @@ servidores e também pode administrá-los remotamente.
 Ver `DESIGN.md` para o desenho técnico completo (modelo de dados, protocolo,
 decisões de arquitetura). Este README é o guia prático de build/deploy/uso.
 
-## Instalação rápida — Agente Linux (recomendado)
+## Instalação rápida (recomendado)
+
+### Central (painel)
+
+Hospedado em infraestrutura separada (seu próprio servidor/VM com Docker).
+Resumo rápido — detalhes completos na seção **Deploy com Docker** mais
+abaixo:
+
+```bash
+git clone https://github.com/cleberreissosdocs/gobackup.git && cd gobackup
+cp .env.central.example .env.central
+# edite POSTGRES_PASSWORD e TLS_HOSTS (IP/hostname que os agentes vão usar)
+
+docker compose -f docker-compose.central.yml --env-file .env.central up -d --build
+
+# aplicar o schema do banco (passo único, só na 1ª instalação):
+docker compose -f docker-compose.central.yml --env-file .env.central exec central \
+  gobackup-central migrate -db "postgres://gobackup:***@postgres:5432/gobackup?sslmode=disable"
+```
+
+Acesse `https://<host>:61443/` e entre com `admin` / `admin` (criado
+automaticamente na primeira subida) — troque a senha assim que entrar, em
+**Usuários**.
+
+### Agente Linux
 
 Pra instalar o **gobackup-agent** num servidor Linux novo, existe um
 instalador automático: baixa o Docker se precisar, baixa o código, gera uma
@@ -23,7 +47,8 @@ Ao final, o próprio script mostra o endereço (`https://<ip-do-servidor>:61081/
 e o login padrão (`admin` / `admin` — troque assim que entrar, em
 **Usuários**). É seguro reexecutar o mesmo comando depois (ex. pra
 atualizar): ele detecta a instalação existente e não mexe na senha do
-banco nem apaga nada.
+banco nem apaga nada. Depois de instalado, abra **Configurações** na UI do
+agente e aponte-o para o endereço do Central de cima.
 
 Personalização opcional (defina a variável antes do `curl`):
 
@@ -89,12 +114,9 @@ cp .env.central.example .env.central
 
 docker compose -f docker-compose.central.yml --env-file .env.central up -d --build
 
-# aplicar schema e criar o primeiro usuário:
+# aplicar schema (usuário admin/admin é criado automaticamente no 1º start):
 docker compose -f docker-compose.central.yml --env-file .env.central exec central \
-  gobackup-central migrate -db "postgres://gobackup:<senha>@postgres:5432/gobackup?sslmode=disable"
-docker compose -f docker-compose.central.yml --env-file .env.central exec central \
-  gobackup-central create-user -db "postgres://gobackup:<senha>@postgres:5432/gobackup?sslmode=disable" \
-  -email admin -password <escolha>
+  gobackup-central migrate -db "postgres://gobackup:***@postgres:5432/gobackup?sslmode=disable"
 
 # copiar o certificado para distribuir aos agentes:
 docker compose -f docker-compose.central.yml --env-file .env.central cp \
@@ -102,7 +124,8 @@ docker compose -f docker-compose.central.yml --env-file .env.central cp \
 ```
 
 Acesse `https://<host>:61443/` (aceite o certificado autoassinado no
-navegador, ou instale-o como CA confiável).
+navegador, ou instale-o como CA confiável) e entre com `admin` / `admin` —
+troque a senha assim que entrar, em **Usuários**.
 
 ### Agent (em cada servidor a proteger)
 
@@ -116,11 +139,9 @@ cp .env.agent.example .env.agent
 
 docker compose -f docker-compose.agent.yml --env-file .env.agent up -d --build postgres
 
+# aplicar schema (usuário admin/admin é criado automaticamente no 1º start):
 docker compose -f docker-compose.agent.yml --env-file .env.agent run --rm agent \
   migrate -db "postgres://gobackup:***@postgres:5432/gobackup?sslmode=disable"
-docker compose -f docker-compose.agent.yml --env-file .env.agent run --rm agent \
-  create-user -db "postgres://gobackup:***@postgres:5432/gobackup?sslmode=disable" \
-  -email admin -password <escolha>
 
 docker compose -f docker-compose.agent.yml --env-file .env.agent up -d
 ```
@@ -129,8 +150,9 @@ Isso sobe dois containers: `postgres` (Postgres local do agente) e `agent`
 (UI web em `https://<host>:61081/`, com o heartbeat para o Central rodando
 embutido no mesmo processo).
 
-Depois, abra `https://<host>:61081/`, faça login, e vá em **Configurações**
-(link no topo). Lá você:
+Depois, abra `https://<host>:61081/`, faça login com `admin` / `admin`
+(troque a senha assim que entrar, em **Usuários**), e vá em
+**Configurações** (link no topo). Lá você:
 - Dá um nome para este agente (como vai aparecer no painel do Central).
 - Informa a URL do Central (ex: `https://192.168.122.151:61443`).
 - Cola o conteúdo do certificado CA do Central (o mesmo
@@ -155,22 +177,24 @@ CGO_ENABLED=0 GOOS=linux go build -o gobackup-central ./cmd/central
 sudo apt-get install -y postgresql
 sudo -u postgres psql -c "CREATE ROLE gobackup LOGIN PASSWORD 'senha';"
 sudo -u postgres psql -c "CREATE DATABASE gobackup OWNER gobackup;"
-./gobackup-central migrate -db "postgres://gobackup:senha@127.0.0.1:5432/gobackup?sslmode=disable"
-./gobackup-central create-user -db "..." -email admin -password <escolha>
-./gobackup-central serve -db "..." -addr :61443 -tls-hosts "<ip-do-central>,localhost,127.0.0.1"
+./gobackup-central migrate -db "postgres://gobackup:***@127.0.0.1:5432/gobackup?sslmode=disable"
+# "serve" cria o usuário admin/admin automaticamente no 1º start (troque a
+# senha depois, em Usuários) — não precisa rodar create-user manualmente.
+./gobackup-central serve -db "postgres://gobackup:***@127.0.0.1:5432/gobackup?sslmode=disable" \
+  -addr :61443 -tls-hosts "<ip-do-central>,localhost,127.0.0.1"
 # copie o gobackup-central-cert.pem gerado para cada agente
 
 # em cada servidor protegido
 sudo apt-get install -y postgresql rsync
 sudo -u postgres psql -c "CREATE ROLE gobackup LOGIN PASSWORD 'senha';"
 sudo -u postgres psql -c "CREATE DATABASE gobackup OWNER gobackup;"
-./gobackup-agent migrate -db "postgres://gobackup:senha@127.0.0.1:5432/gobackup?sslmode=disable"
-./gobackup-agent create-user -db "..." -email admin -password <escolha>
+./gobackup-agent migrate -db "postgres://gobackup:***@127.0.0.1:5432/gobackup?sslmode=disable"
 ./gobackup-agent register -central https://<central-host>:61443 -name <nome> \
   -token-file /etc/gobackup/agent-token -central-ca ./gobackup-central-cert.pem
-./gobackup-agent serve -db "..." -addr :61081 &
-# o heartbeat para o Central já roda embutido no "serve" (1s por padrão,
-# use -heartbeat-interval para mudar); configure a URL/CA pela tela
+./gobackup-agent serve -db "postgres://gobackup:***@127.0.0.1:5432/gobackup?sslmode=disable" -addr :61081 &
+# login padrão admin/admin, criado automaticamente — o heartbeat para o
+# Central já roda embutido no "serve" (1s por padrão, use
+# -heartbeat-interval para mudar); configure a URL/CA pela tela
 # "Configurações" da UI web, OU rode o heartbeat como processo separado
 # (-central-ca aceita um arquivo) se preferir não usar a UI:
 # ./gobackup-agent heartbeat -central https://<central-host>:61443 \

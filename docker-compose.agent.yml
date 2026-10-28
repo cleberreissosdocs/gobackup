@@ -10,11 +10,9 @@
 #   2. docker compose -f docker-compose.agent.yml --env-file .env.agent up -d --build postgres
 #   3. docker compose -f docker-compose.agent.yml --env-file .env.agent run --rm agent \
 #        migrate -db "postgres://gobackup:***@postgres:5432/gobackup?sslmode=disable"
-#   4. docker compose -f docker-compose.agent.yml --env-file .env.agent run --rm agent \
-#        create-user -db "postgres://gobackup:***@postgres:5432/gobackup?sslmode=disable" \
-#        -email admin -password <escolha>
-#   5. docker compose -f docker-compose.agent.yml --env-file .env.agent up -d
-#   6. Open https://<este-servidor>:61081/, faça login, e em "Configurações"
+#   4. docker compose -f docker-compose.agent.yml --env-file .env.agent up -d
+#   5. Open https://<este-servidor>:61081/, faça login com admin/admin
+#      (criado automaticamente), troque a senha, e em "Configurações"
 #      aponte para a URL do Central e cole o certificado CA dele.
 #
 # Mount whatever host directories you want backed up under /backups — paths

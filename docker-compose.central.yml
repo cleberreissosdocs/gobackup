@@ -2,8 +2,10 @@
 # Usage:
 #   1. cp .env.central.example .env.central  (edit values)
 #   2. docker compose -f docker-compose.central.yml --env-file .env.central up -d --build
-#   3. docker compose -f docker-compose.central.yml exec central gobackup-central migrate -db "postgres://gobackup:${POSTGRES_PASSWORD}@postgres:5432/gobackup?sslmode=disable"
-#   4. docker compose -f docker-compose.central.yml exec central gobackup-central create-user -db "postgres://gobackup:${POSTGRES_PASSWORD}@postgres:5432/gobackup?sslmode=disable" -email admin -password <escolha>
+#   3. docker compose -f docker-compose.central.yml exec central gobackup-central migrate -db "postgres://gobackup:***@postgres:5432/gobackup?sslmode=disable"
+#
+# The admin/admin login is created automatically on first start (inside
+# "serve", once the schema exists) — change the password in Usuários.
 #
 # The Central's self-signed TLS cert (needed by every agent as -central-ca)
 # is written to the tls_data volume; copy it out with:
