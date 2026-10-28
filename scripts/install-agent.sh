@@ -63,13 +63,25 @@ if ! command -v docker >/dev/null 2>&1; then
   if ! command -v docker >/dev/null 2>&1; then
     die "Falha ao instalar o Docker automaticamente. Instale manualmente: https://docs.docker.com/engine/install/"
   fi
-  if [ "${EUID:-$(id -u)}" -ne 0 ] && ! groups "$USER" 2>/dev/null | grep -qw docker; then
-    sudo usermod -aG docker "$USER" || true
-    warn "Seu usuário foi adicionado ao grupo 'docker'. Pode ser necessário sair e entrar de novo na sessão SSH para isso valer (ou rode o resto deste script com 'sudo')."
-  fi
   ok "Docker instalado"
 else
   ok "Docker já instalado ($(docker --version))"
+fi
+
+# Independentemente de o Docker já estar instalado ou de tê-lo acabado de
+# instalar: se o usuário atual não consegue falar com o daemon (caso comum
+# num servidor onde o Docker já existia só para o root/outro usuário), todo
+# comando docker/compose abaixo falharia com "permission denied". Corrige
+# adicionando ao grupo 'docker' e pede para rodar de novo numa sessão nova —
+# trocar o grupo de um processo já aberto não é possível sem logout/login
+# (ou 'newgrp'), então não dá para simplesmente continuar neste mesmo run.
+if [ "${EUID:-$(id -u)}" -ne 0 ] && ! docker info >/dev/null 2>&1; then
+  if groups "$USER" 2>/dev/null | grep -qw docker; then
+    die "Seu usuário já está no grupo 'docker', mas esta sessão ainda não aplicou isso (grupo adicionado depois do login). Saia e entre de novo (ou rode 'newgrp docker') e rode este script de novo."
+  fi
+  warn "Seu usuário não está no grupo 'docker' — adicionando (pode pedir sua senha de sudo)..."
+  sudo usermod -aG docker "$USER" || die "Não foi possível adicionar '$USER' ao grupo 'docker'. Peça para um administrador rodar: sudo usermod -aG docker $USER"
+  die "Usuário adicionado ao grupo 'docker'. Saia e entre de novo nesta sessão (ou rode 'newgrp docker') e rode este script de novo para continuar a instalação."
 fi
 
 DOCKER_COMPOSE_CMD=""
