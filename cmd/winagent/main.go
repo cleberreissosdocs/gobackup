@@ -295,12 +295,13 @@ func cmdLocalRunJob(args []string) {
 
 	if target.Kind == "database" {
 		fmt.Printf("Executando backup de banco %q (%s) -> %s ...\n", target.Name, target.Engine, target.Dest)
+		startedAt := time.Now()
 		result, err := winagentcore.RunDBJob(context.Background(), target, *password)
 		if err != nil {
-			_ = store.UpdateStatus(target.ID, "failed", err.Error(), 0, 0)
+			_ = store.UpdateStatus(target.ID, "failed", err.Error(), 0, 0, startedAt)
 			fatal(err.Error())
 		}
-		_ = store.UpdateStatus(target.ID, "success", "", result.BytesWritten, 1)
+		_ = store.UpdateStatus(target.ID, "success", "", result.BytesWritten, 1, startedAt)
 		fmt.Printf("OK: dump em %s (%d byte(s))", result.OutputPath, result.BytesWritten)
 		if result.Deleted > 0 {
 			fmt.Printf(", %d backup(s) antigo(s) removido(s) pela retenção", result.Deleted)
@@ -310,6 +311,7 @@ func cmdLocalRunJob(args []string) {
 	}
 
 	fmt.Printf("Executando %q: %s -> %s ...\n", target.Name, target.Source, target.Dest)
+	startedAt := time.Now()
 	progress := func(done, total int, bytes int64, file string) {
 		fmt.Printf("\r%d/%d arquivos, %d bytes — %s          ", done, total, bytes, file)
 	}
@@ -321,10 +323,10 @@ func cmdLocalRunJob(args []string) {
 	}
 	fmt.Println()
 	if err != nil {
-		_ = store.UpdateStatus(target.ID, "failed", err.Error(), 0, 0)
+		_ = store.UpdateStatus(target.ID, "failed", err.Error(), 0, 0, startedAt)
 		fatal(err.Error())
 	}
-	_ = store.UpdateStatus(target.ID, "success", "", result.BytesCopied, result.FilesCopied)
+	_ = store.UpdateStatus(target.ID, "success", "", result.BytesCopied, result.FilesCopied, startedAt)
 	fmt.Printf("OK: %d copiado(s), %d pulado(s), %d removido(s), %d byte(s)\n", result.FilesCopied, result.FilesSkipped, result.FilesDeleted, result.BytesCopied)
 }
 

@@ -108,6 +108,18 @@ type ActivityItem struct {
 	Status      string
 }
 
+// ExecutionRecord is one finished job run, for the per-server timeline
+// chart (JobHistory) — unlike ActivityItem (protocol/command log) this
+// always maps to a REAL backup attempt with a start and end time.
+type ExecutionRecord struct {
+	JobID      string
+	JobName    string
+	Status     string // "success" or "failed"
+	StartedAt  time.Time
+	FinishedAt time.Time
+	Error      string
+}
+
 // Runner is implemented once for local (agent) execution and once for
 // remote (central, via the command queue + heartbeat-refreshed cache)
 // execution.
@@ -154,6 +166,11 @@ type Runner interface {
 	ResumeJob(ctx context.Context, jobID string) error
 
 	RecentActivity(ctx context.Context, limit int) ([]ActivityItem, error)
+
+	// JobHistory returns every finished (success/failed) execution across
+	// all of this agent's jobs in the last `days` days, for the per-server
+	// timeline chart on the Central dashboard.
+	JobHistory(ctx context.Context, days int) ([]ExecutionRecord, error)
 }
 
 // triggerLabel maps a raw execution trigger to a short, human Portuguese

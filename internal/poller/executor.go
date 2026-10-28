@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -56,6 +57,8 @@ func (e *Executor) Execute(ctx context.Context, cmd QueuedCommand) CommandResult
 		result, err = e.resumeJob(cmd.Payload)
 	case "delete_job":
 		result, err = e.deleteJob(ctx, cmd.Payload)
+	case "job_history":
+		result, err = e.jobHistory(ctx, cmd.Payload)
 	default:
 		err = fmt.Errorf("unsupported command type: %s", cmd.Type)
 	}
@@ -317,6 +320,38 @@ func (e *Executor) listJobs(ctx context.Context) (map[string]any, error) {
 		list = append(list, entry)
 	}
 	return map[string]any{"jobs": list}, nil
+}
+
+// jobHistory reports every finished (success/failed) execution of this
+// agent's jobs within the requested window, for the Central dashboard's
+// per-server timeline chart (one bar per execution, grouped by job name).
+func (e *Executor) jobHistory(ctx context.Context, payload map[string]any) (map[string]any, error) {
+	days := payloadInt(payload, "days", 30)
+	if days <= 0 {
+		days = 30
+	}
+	since := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+	rows, err := e.Store.ListExecutionHistory(ctx, e.AgentID, since)
+	if err != nil {
+		return nil, err
+	}
+	type execEntry struct {
+		JobID      string `json:"job_id"`
+		JobName    string `json:"job_name"`
+		Status     string `json:"status"`
+		StartedAt  string `json:"started_at"`
+		FinishedAt string `json:"finished_at"`
+		Error      string `json:"error,omitempty"`
+	}
+	list := make([]execEntry, 0, len(rows))
+	for _, row := range rows {
+		list = append(list, execEntry{
+			JobID: row.JobID.String(), JobName: row.JobName, Status: row.Status,
+			StartedAt: row.StartedAt.Format(time.RFC3339), FinishedAt: row.FinishedAt.Format(time.RFC3339),
+			Error: row.ErrorMessage,
+		})
+	}
+	return map[string]any{"executions": list}, nil
 }
 
 // runJob STARTS an already-persisted job asynchronously via Engine and

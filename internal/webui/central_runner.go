@@ -377,3 +377,35 @@ func (r *CentralRunner) RecentActivity(ctx context.Context, limit int) ([]Activi
 	}
 	return out, nil
 }
+
+// JobHistory asks the remote agent (via the command queue) for its
+// execution history and parses the result into ExecutionRecords, for the
+// Central dashboard's per-server timeline chart.
+func (r *CentralRunner) JobHistory(ctx context.Context, days int) ([]ExecutionRecord, error) {
+	outcome, err := r.enqueueAndWait(ctx, "job_history", map[string]any{"days": days})
+	if err != nil {
+		return nil, err
+	}
+	if outcome.Status != "success" {
+		return nil, fmt.Errorf("%s", outcome.Message)
+	}
+	_, result, err := r.lastCommandResult(ctx, "job_history")
+	if err != nil {
+		return nil, err
+	}
+	execsRaw, _ := result["executions"].([]any)
+	out := make([]ExecutionRecord, 0, len(execsRaw))
+	for _, e := range execsRaw {
+		m, ok := e.(map[string]any)
+		if !ok {
+			continue
+		}
+		started, _ := time.Parse(time.RFC3339, strField(m, "started_at"))
+		finished, _ := time.Parse(time.RFC3339, strField(m, "finished_at"))
+		out = append(out, ExecutionRecord{
+			JobID: strField(m, "job_id"), JobName: strField(m, "job_name"), Status: strField(m, "status"),
+			StartedAt: started, FinishedAt: finished, Error: strField(m, "error"),
+		})
+	}
+	return out, nil
+}

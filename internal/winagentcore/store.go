@@ -64,8 +64,26 @@ type Job struct {
 }
 
 type jobStoreFile struct {
-	Jobs []Job `json:"jobs"`
+	Jobs    []Job          `json:"jobs"`
+	History []HistoryEntry `json:"history,omitempty"`
 }
+
+// HistoryEntry is one finished (success/failed/cancelled) job execution,
+// appended by UpdateStatus — mirrors the Linux agent's job_executions
+// table just enough to feed the Central dashboard's per-server timeline
+// chart (JobHistory/"job_history" command).
+type HistoryEntry struct {
+	JobID      string    `json:"job_id"`
+	JobName    string    `json:"job_name"`
+	Status     string    `json:"status"`
+	StartedAt  time.Time `json:"started_at"`
+	FinishedAt time.Time `json:"finished_at"`
+	Error      string    `json:"error,omitempty"`
+}
+
+// maxHistoryEntries caps jobs.json's growth — a timeline chart only ever
+// needs a bounded recent window, not an unbounded audit log.
+const maxHistoryEntries = 2000
 
 // JobStore is a small mutex-protected JSON-file-backed CRUD store.
 type JobStore struct {
@@ -201,25 +219,55 @@ func (s *JobStore) Update(id string, j Job) error {
 }
 
 // UpdateStatus patches just the run-result fields, leaving the job
-// definition itself untouched — called after every execution.
-func (s *JobStore) UpdateStatus(id, status, errMsg string, bytesWritten int64, filesWritten int) error {
+// definition itself untouched — called after every execution. Also
+// appends a HistoryEntry (job name snapshotted at call time, since a job
+// can be renamed/deleted later but its history should still read right)
+// for the Central dashboard's per-server timeline chart.
+func (s *JobStore) UpdateStatus(id, status, errMsg string, bytesWritten int64, filesWritten int, startedAt time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	f, err := s.load()
 	if err != nil {
 		return err
 	}
+	finishedAt := time.Now()
 	for i, existing := range f.Jobs {
 		if existing.ID == id {
 			f.Jobs[i].LastStatus = status
 			f.Jobs[i].LastError = errMsg
-			f.Jobs[i].LastRunAt = time.Now()
+			f.Jobs[i].LastRunAt = finishedAt
 			f.Jobs[i].BytesLastRun = bytesWritten
 			f.Jobs[i].FilesLastRun = filesWritten
+			f.History = append(f.History, HistoryEntry{
+				JobID: id, JobName: f.Jobs[i].Name, Status: status,
+				StartedAt: startedAt, FinishedAt: finishedAt, Error: errMsg,
+			})
+			if len(f.History) > maxHistoryEntries {
+				f.History = f.History[len(f.History)-maxHistoryEntries:]
+			}
 			return s.save(f)
 		}
 	}
 	return fmt.Errorf("job not found: %s", id)
+}
+
+// ListHistory returns every history entry recorded since the given time,
+// oldest first.
+func (s *JobStore) ListHistory(since time.Time) ([]HistoryEntry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f, err := s.load()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]HistoryEntry, 0, len(f.History))
+	for _, h := range f.History {
+		if h.StartedAt.Before(since) {
+			continue
+		}
+		out = append(out, h)
+	}
+	return out, nil
 }
 
 func (s *JobStore) Delete(id string) error {

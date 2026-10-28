@@ -652,3 +652,43 @@ func (s *Store) ListRecentExecutions(ctx context.Context, agentID uuid.UUID, lim
 	}
 	return out, rows.Err()
 }
+
+// ExecutionHistoryEntry is one job_executions row enriched with its job's
+// name, for the agent-timeline Gantt-style chart on the Central dashboard.
+// Unlike RecentExecution (newest-first, every status, for "atividade
+// recente") this is oldest-first, scoped to the two outcomes a timeline
+// bar can represent, and carries FinishedAt so a bar can span a duration.
+type ExecutionHistoryEntry struct {
+	JobID        uuid.UUID
+	JobName      string
+	Status       string // "success" or "failed" only
+	StartedAt    time.Time
+	FinishedAt   time.Time // falls back to StartedAt when NULL (e.g. instant/zero-duration run)
+	ErrorMessage string
+}
+
+// ListExecutionHistory returns every finished (success/failed) execution
+// for an agent's jobs since the given time, oldest first.
+func (s *Store) ListExecutionHistory(ctx context.Context, agentID uuid.UUID, since time.Time) ([]ExecutionHistoryEntry, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT je.job_id, bj.name, je.status, je.started_at, COALESCE(je.finished_at, je.started_at), COALESCE(je.error_message, '')
+		FROM job_executions je
+		JOIN backup_jobs bj ON bj.id = je.job_id
+		WHERE bj.agent_id = $1 AND je.status IN ('success', 'failed') AND je.started_at >= $2
+		ORDER BY je.started_at ASC
+	`, agentID, since)
+	if err != nil {
+		return nil, fmt.Errorf("list execution history: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ExecutionHistoryEntry
+	for rows.Next() {
+		var eh ExecutionHistoryEntry
+		if err := rows.Scan(&eh.JobID, &eh.JobName, &eh.Status, &eh.StartedAt, &eh.FinishedAt, &eh.ErrorMessage); err != nil {
+			return nil, fmt.Errorf("scan execution history: %w", err)
+		}
+		out = append(out, eh)
+	}
+	return out, rows.Err()
+}

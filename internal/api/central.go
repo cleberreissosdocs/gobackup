@@ -46,6 +46,7 @@ func (s *Server) routes() {
 	s.Mux.HandleFunc("POST /agents/{id}/delete", s.Auth.RequireLoginAndCSRF(s.handleDeleteAgent))
 	s.Mux.HandleFunc("GET /agents/{id}/rename", s.Auth.RequireLogin(s.handleRenameAgentForm))
 	s.Mux.HandleFunc("POST /agents/{id}/rename", s.Auth.RequireLoginAndCSRF(s.handleRenameAgentSubmit))
+	s.Mux.HandleFunc("GET /agents/{id}/timeline", s.Auth.RequireLogin(s.handleAgentTimeline))
 	s.Mux.HandleFunc("GET /notifications", s.Auth.RequireLogin(s.handleNotificationsPage))
 	s.Mux.HandleFunc("POST /notifications", s.Auth.RequireLoginAndCSRF(s.handleNotificationsSubmit))
 	s.Mux.HandleFunc("POST /notifications/{id}/test", s.Auth.RequireLoginAndCSRF(s.handleTestNotificationChannel))
@@ -872,7 +873,7 @@ tr.gb-row-offline td { color: var(--gb-text-faint); }
 <tr><th>Agente</th><th>Hostname</th><th>Status</th><th>Último heartbeat</th><th>Saúde</th><th></th></tr>
 {{range .Agents}}
 <tr>
-  <td>{{.Name}}</td>
+  <td><a href="/agents/{{.ID}}/timeline" title="ver linha do tempo de backups deste servidor">{{.Name}}</a></td>
   <td>{{.Hostname}}</td>
   <td class="{{.Status}}">{{.Status}}</td>
   <td>{{.LastSeen}}</td>
@@ -956,6 +957,199 @@ type dashboardJobView struct {
 	JobStatus   string
 	Percent     int
 }
+
+// timelineBar is one execution rendered as a positioned div on the chart
+// — Left/Width are percentages (0-100) of the shared time axis so every
+// job row lines up against the same range.
+type timelineBar struct {
+	LeftPct  float64
+	WidthPct float64
+	Status   string // "success" | "failed"
+	Tooltip  string
+}
+
+type timelineRow struct {
+	JobName string
+	Bars    []timelineBar
+}
+
+// buildTimeline groups execution records by job name and positions each
+// one as a bar along a SHARED time axis (earliest start across every job
+// to latest finish, or now), so all rows are visually comparable. Returns
+// nil rows plus ok=false when there's nothing to show yet.
+func buildTimeline(records []webui.ExecutionRecord) (rows []timelineRow, rangeStart, rangeEnd time.Time, ok bool) {
+	if len(records) == 0 {
+		return nil, time.Time{}, time.Time{}, false
+	}
+	rangeStart, rangeEnd = records[0].StartedAt, records[0].FinishedAt
+	for _, rec := range records {
+		if rec.StartedAt.Before(rangeStart) {
+			rangeStart = rec.StartedAt
+		}
+		if rec.FinishedAt.After(rangeEnd) {
+			rangeEnd = rec.FinishedAt
+		}
+	}
+	// A hair of padding on both ends keeps the very first/last bar from
+	// visually touching the chart's edge.
+	span := rangeEnd.Sub(rangeStart)
+	if span <= 0 {
+		span = time.Minute
+	}
+	pad := span / 20
+	rangeStart = rangeStart.Add(-pad)
+	rangeEnd = rangeEnd.Add(pad)
+	totalSpan := rangeEnd.Sub(rangeStart).Seconds()
+
+	order := []string{}
+	byJob := map[string][]timelineBar{}
+	for _, rec := range records {
+		if _, seen := byJob[rec.JobName]; !seen {
+			order = append(order, rec.JobName)
+		}
+		left := rec.StartedAt.Sub(rangeStart).Seconds() / totalSpan * 100
+		width := rec.FinishedAt.Sub(rec.StartedAt).Seconds() / totalSpan * 100
+		const minWidthPct = 0.5 // a near-instant run must still be visible/clickable
+		if width < minWidthPct {
+			width = minWidthPct
+		}
+		if left+width > 100 {
+			left = 100 - width
+		}
+		if left < 0 {
+			left = 0
+		}
+		label := "sucesso"
+		if rec.Status == "failed" {
+			label = "falhou"
+		}
+		tooltip := fmt.Sprintf("%s — %s\ninício: %s\n%s: %s",
+			rec.JobName, label,
+			rec.StartedAt.Local().Format("02/01 15:04:05"),
+			map[bool]string{true: "concluído", false: "falhou às"}[rec.Status == "success"],
+			rec.FinishedAt.Local().Format("02/01 15:04:05"))
+		if rec.Status == "failed" && rec.Error != "" {
+			tooltip += "\nerro: " + rec.Error
+		}
+		byJob[rec.JobName] = append(byJob[rec.JobName], timelineBar{
+			LeftPct: left, WidthPct: width, Status: rec.Status, Tooltip: tooltip,
+		})
+	}
+	for _, name := range order {
+		rows = append(rows, timelineRow{JobName: name, Bars: byJob[name]})
+	}
+	return rows, rangeStart, rangeEnd, true
+}
+
+func (s *Server) handleAgentTimeline(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	agentID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httpError(w, http.StatusBadRequest, "id de agente inválido")
+		return
+	}
+	_, agentName, err := s.Store.AgentTenantAndName(ctx, agentID)
+	if err != nil {
+		httpError(w, http.StatusNotFound, "agente não encontrado")
+		return
+	}
+
+	runner := &webui.CentralRunner{Store: s.Store, AgentID: agentID}
+	records, histErr := runner.JobHistory(ctx, 30)
+	if histErr != nil {
+		log.Println("agent timeline: job history:", histErr)
+	}
+	rows, rangeStart, rangeEnd, hasData := buildTimeline(records)
+
+	rangeLabel := ""
+	if hasData {
+		rangeLabel = fmt.Sprintf("%s — %s", rangeStart.Local().Format("02/01/2006"), rangeEnd.Local().Format("02/01/2006"))
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := timelineTmpl.Execute(w, struct {
+		AgentID    string
+		AgentName  string
+		HasData    bool
+		HasError   bool
+		RangeLabel string
+		Rows       []timelineRow
+	}{agentID.String(), agentName, hasData, histErr != nil, rangeLabel, rows}); err != nil {
+		log.Println("agent timeline: render:", err)
+	}
+}
+
+var timelineTmpl = template.Must(template.New("agent-timeline").Parse(`<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>GoBackup Central — Linha do tempo de {{.AgentName}}</title>
+<link rel="icon" href="/favicon.ico">
+<style>
+* { box-sizing: border-box; }
+:root {
+  --gb-bg: #0b0c10; --gb-card: #16171e; --gb-border: #262835; --gb-border-soft: #1f2029;
+  --gb-text: #e8e8ec; --gb-text-muted: #8a8f9c; --gb-accent: #2d6cdf;
+  --gb-success: #2ecc71; --gb-danger: #f0544a;
+}
+body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--gb-bg); color: var(--gb-text); margin:0; padding:2rem; }
+nav { margin-bottom:1.5rem; display:flex; align-items:center; gap:0.5rem; }
+nav img { width:18px; height:18px; object-fit:contain; }
+nav a { color:#9ad1ff; text-decoration:none; }
+nav a:hover { text-decoration:underline; }
+h1 { margin:0 0 0.3rem; font-size:1.4rem; }
+.subtitle { color: var(--gb-text-muted); margin-bottom:1.5rem; font-size:0.9rem; }
+.gb-card { background: var(--gb-card); border:1px solid var(--gb-border); border-radius:12px; padding:1.5rem; }
+.legend { display:flex; gap:1.5rem; margin-bottom:1.5rem; font-size:0.85rem; color: var(--gb-text-muted); }
+.legend span.dot { display:inline-block; width:0.7rem; height:0.7rem; border-radius:50%; margin-right:0.4rem; vertical-align:middle; }
+.timeline-wrap { display:flex; }
+.timeline-labels { width:220px; flex-shrink:0; padding-right:0.75rem; }
+.timeline-label { height:38px; display:flex; align-items:center; font-size:0.85rem; border-bottom:1px solid var(--gb-border-soft); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.timeline-area { flex:1; position:relative; min-width:0; }
+.timeline-row { height:38px; position:relative; border-bottom:1px solid var(--gb-border-soft); }
+.timeline-bar { position:absolute; top:7px; height:24px; border-radius:4px; cursor:default; opacity:0.92; }
+.timeline-bar:hover { opacity:1; outline:1px solid rgba(255,255,255,0.5); }
+.timeline-bar.success { background: var(--gb-success); }
+.timeline-bar.failed { background: var(--gb-danger); }
+.range-label { text-align:center; color: var(--gb-text-muted); font-size:0.8rem; margin-top:0.75rem; }
+.empty { color: var(--gb-text-muted); padding:2rem 0; text-align:center; }
+.warn { color: var(--gb-danger); font-size:0.85rem; margin-bottom:1rem; }
+</style>
+</head>
+<body>
+<nav><a href="/"><img src="/logo.png" alt="">GoBackup Central</a>
+<a href="/">&larr; Dashboard</a>
+<a href="/agents/{{.AgentID}}/">Administrar este servidor</a>
+</nav>
+<h1>Linha do tempo de backups — {{.AgentName}}</h1>
+<div class="subtitle">Execuções com sucesso ou falha dos últimos 30 dias, uma linha por tarefa.</div>
+
+{{if .HasError}}<div class="warn">Não foi possível buscar o histórico agora (o agente pode estar offline ou ainda não confirmou o pedido — tente recarregar em alguns segundos).</div>{{end}}
+
+<div class="gb-card">
+<div class="legend">
+  <span><span class="dot" style="background:var(--gb-success);"></span>Sucesso</span>
+  <span><span class="dot" style="background:var(--gb-danger);"></span>Falhou</span>
+</div>
+{{if .HasData}}
+<div class="timeline-wrap">
+  <div class="timeline-labels">
+  {{range .Rows}}<div class="timeline-label" title="{{.JobName}}">{{.JobName}}</div>{{end}}
+  </div>
+  <div class="timeline-area">
+  {{range .Rows}}<div class="timeline-row">
+    {{range .Bars}}<div class="timeline-bar {{.Status}}" style="left:{{.LeftPct}}%; width:{{.WidthPct}}%;" title="{{.Tooltip}}"></div>{{end}}
+  </div>{{end}}
+  </div>
+</div>
+<div class="range-label">{{.RangeLabel}}</div>
+{{else}}
+<div class="empty">Nenhuma execução registrada para este servidor nos últimos 30 dias.</div>
+{{end}}
+</div>
+</body>
+</html>
+`))
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

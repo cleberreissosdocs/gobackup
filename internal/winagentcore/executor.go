@@ -303,6 +303,37 @@ func (e *Executor) dispatch(cmd poller.QueuedCommand) (map[string]any, error) {
 		}
 		return map[string]any{"job_id": id, "status": "running"}, nil
 
+	case "job_history":
+		days := 30
+		if d, ok := cmd.Payload["days"].(float64); ok && d > 0 {
+			days = int(d)
+		}
+		since := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+		history, err := e.Store.ListHistory(since)
+		if err != nil {
+			return nil, err
+		}
+		type execEntry struct {
+			JobID      string `json:"job_id"`
+			JobName    string `json:"job_name"`
+			Status     string `json:"status"`
+			StartedAt  string `json:"started_at"`
+			FinishedAt string `json:"finished_at"`
+			Error      string `json:"error,omitempty"`
+		}
+		list := make([]execEntry, 0, len(history))
+		for _, h := range history {
+			if h.Status != "success" && h.Status != "failed" {
+				continue
+			}
+			list = append(list, execEntry{
+				JobID: h.JobID, JobName: h.JobName, Status: h.Status,
+				StartedAt: h.StartedAt.Format(time.RFC3339), FinishedAt: h.FinishedAt.Format(time.RFC3339),
+				Error: h.Error,
+			})
+		}
+		return map[string]any{"executions": list}, nil
+
 	default:
 		return nil, fmt.Errorf("unsupported command type: %s", cmd.Type)
 	}
@@ -319,6 +350,7 @@ func defaultStr(v, def string) string {
 // a multi-minute backup never blocks the 1s heartbeat tick, the same
 // design the Linux agent's jobexec.Engine uses.
 func (e *Executor) runFileJob(j Job) {
+	startedAt := time.Now()
 	e.Registry.Set(j.ID, RunState{Status: "running", Percent: 0, Message: "iniciando..."})
 
 	ctx, jc := e.registerControl(context.Background(), j.ID, "files")
@@ -359,11 +391,11 @@ func (e *Executor) runFileJob(j Job) {
 	if err != nil {
 		if ctx.Err() == context.Canceled {
 			e.Registry.Set(j.ID, RunState{Status: "cancelled", Percent: -1, Message: "cancelado pelo usuário"})
-			_ = e.Store.UpdateStatus(j.ID, "cancelled", "cancelado pelo usuário", result.BytesCopied, result.FilesCopied)
+			_ = e.Store.UpdateStatus(j.ID, "cancelled", "cancelado pelo usuário", result.BytesCopied, result.FilesCopied, startedAt)
 			return
 		}
 		e.Registry.Set(j.ID, RunState{Status: "failed", Percent: -1, Message: err.Error()})
-		_ = e.Store.UpdateStatus(j.ID, "failed", err.Error(), result.BytesCopied, result.FilesCopied)
+		_ = e.Store.UpdateStatus(j.ID, "failed", err.Error(), result.BytesCopied, result.FilesCopied, startedAt)
 		return
 	}
 
@@ -372,7 +404,7 @@ func (e *Executor) runFileJob(j Job) {
 		msg += fmt.Sprintf(", %d removido(s) do destino", result.FilesDeleted)
 	}
 	e.Registry.Set(j.ID, RunState{Status: "success", Percent: 100, Message: msg})
-	_ = e.Store.UpdateStatus(j.ID, "success", "", result.BytesCopied, result.FilesCopied)
+	_ = e.Store.UpdateStatus(j.ID, "success", "", result.BytesCopied, result.FilesCopied, startedAt)
 }
 
 // runDBJob dumps the database and ships it to the configured destination.
@@ -380,6 +412,7 @@ func (e *Executor) runFileJob(j Job) {
 // jobs.json (matching the Linux agent's behavior for password-protected
 // engines).
 func (e *Executor) runDBJob(j Job, password string) {
+	startedAt := time.Now()
 	e.Registry.Set(j.ID, RunState{Status: "running", Percent: 0, Message: "gerando dump..."})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
@@ -392,11 +425,11 @@ func (e *Executor) runDBJob(j Job, password string) {
 	if err != nil {
 		if ctx.Err() == context.Canceled {
 			e.Registry.Set(j.ID, RunState{Status: "cancelled", Percent: -1, Message: "cancelado pelo usuário"})
-			_ = e.Store.UpdateStatus(j.ID, "cancelled", "cancelado pelo usuário", 0, 0)
+			_ = e.Store.UpdateStatus(j.ID, "cancelled", "cancelado pelo usuário", 0, 0, startedAt)
 			return
 		}
 		e.Registry.Set(j.ID, RunState{Status: "failed", Percent: -1, Message: err.Error()})
-		_ = e.Store.UpdateStatus(j.ID, "failed", err.Error(), 0, 0)
+		_ = e.Store.UpdateStatus(j.ID, "failed", err.Error(), 0, 0, startedAt)
 		return
 	}
 
@@ -405,5 +438,5 @@ func (e *Executor) runDBJob(j Job, password string) {
 		msg += fmt.Sprintf(", %d backup(s) antigo(s) removido(s) pela retenção", result.Deleted)
 	}
 	e.Registry.Set(j.ID, RunState{Status: "success", Percent: 100, Message: msg})
-	_ = e.Store.UpdateStatus(j.ID, "success", "", result.BytesWritten, 1)
+	_ = e.Store.UpdateStatus(j.ID, "success", "", result.BytesWritten, 1, startedAt)
 }

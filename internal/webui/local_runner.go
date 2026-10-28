@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -240,6 +241,22 @@ func (r *LocalRunner) RecentActivity(ctx context.Context, limit int) ([]Activity
 	for _, row := range rows {
 		desc := humanizeExecution(row.JobName, row.Status, row.Trigger, row.ErrorMessage)
 		out = append(out, ActivityItem{When: row.StartedAt, Description: desc, Status: row.Status})
+	}
+	return out, nil
+}
+
+func (r *LocalRunner) JobHistory(ctx context.Context, days int) ([]ExecutionRecord, error) {
+	since := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+	rows, err := r.Store.ListExecutionHistory(ctx, r.AgentID, since)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ExecutionRecord, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, ExecutionRecord{
+			JobID: row.JobID.String(), JobName: row.JobName, Status: row.Status,
+			StartedAt: row.StartedAt, FinishedAt: row.FinishedAt, Error: row.ErrorMessage,
+		})
 	}
 	return out, nil
 }
