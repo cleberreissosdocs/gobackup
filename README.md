@@ -8,6 +8,41 @@ servidores e também pode administrá-los remotamente.
 Ver `DESIGN.md` para o desenho técnico completo (modelo de dados, protocolo,
 decisões de arquitetura). Este README é o guia prático de build/deploy/uso.
 
+## Instalação rápida — Agente Linux (recomendado)
+
+Pra instalar o **gobackup-agent** num servidor Linux novo, existe um
+instalador automático: baixa o Docker se precisar, baixa o código, gera uma
+senha de banco de dados forte e única, sobe tudo e deixa pronto pro
+primeiro login — tudo com um único comando:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cleberreissosdocs/gobackup/main/scripts/install-agent.sh | bash
+```
+
+Ao final, o próprio script mostra o endereço (`https://<ip-do-servidor>:61081/`)
+e o login padrão (`admin` / `admin` — troque assim que entrar, em
+**Usuários**). É seguro reexecutar o mesmo comando depois (ex. pra
+atualizar): ele detecta a instalação existente e não mexe na senha do
+banco nem apaga nada.
+
+Personalização opcional (defina a variável antes do `curl`):
+
+| Variável | Para que serve | Padrão |
+|---|---|---|
+| `AGENT_HOSTNAME` | Nome fixo deste agente no painel Central | nome do servidor |
+| `AGENT_WEB_PORT` | Porta da interface web | `61081` |
+| `INSTALL_DIR` | Pasta onde instalar | `~/gobackup-agent` |
+| `BACKUP_SOURCE_DIR` | Pasta usada para os backups | `INSTALL_DIR/backups` |
+
+```bash
+AGENT_HOSTNAME=srv-financeiro AGENT_WEB_PORT=61082 curl -fsSL \
+  https://raw.githubusercontent.com/cleberreissosdocs/gobackup/main/scripts/install-agent.sh \
+  | bash
+```
+
+Prefere instalar manualmente (Docker passo a passo, ou nativo sem Docker)?
+Veja as seções **Deploy com Docker** e **Deploy nativo** mais abaixo.
+
 ## Componentes
 
 - **gobackup-agent** — instalado em cada servidor a proteger. Orquestra
@@ -43,7 +78,7 @@ Central detecta um agente offline em ~5s de silêncio (antes eram 45s).
   texto puro (só passam no payload do comando, via variável de ambiente do
   subprocesso — `PGPASSWORD`/`MYSQL_PWD`).
 
-## Deploy com Docker (recomendado)
+## Deploy com Docker (manual, passo a passo)
 
 ### Central
 
