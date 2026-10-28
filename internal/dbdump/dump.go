@@ -1,7 +1,10 @@
 // Package dbdump orchestrates database backups (dump + compression) for
-// the four engines GoBackup supports: MariaDB, MySQL, PostgreSQL and
-// SQLite. The dump is written compressed directly to the destination
-// directory configured by the user — no uncompressed intermediate file.
+// the five engines GoBackup supports: MariaDB, MySQL, PostgreSQL, SQLite
+// and SQL Server (mssql). The dump is written compressed directly to the
+// destination directory configured by the user — no uncompressed
+// intermediate file (except mssql, which — being a server-side native
+// backup — unavoidably writes one temporary .bak file next to the SQL
+// Server instance itself; see dumpMSSQL for why and how it's cleaned up).
 package dbdump
 
 import (
@@ -52,6 +55,8 @@ func Run(ctx context.Context, opts Options, destDir string, compression core.Com
 	ext := ".sql"
 	if opts.Engine == core.EngineSQLite {
 		ext = ".sqlite"
+	} else if opts.Engine == core.EngineMSSQL {
+		ext = ".bak"
 	}
 
 	var outPath string
@@ -92,6 +97,8 @@ func Run(ctx context.Context, opts Options, destDir string, compression core.Com
 		written, err = dumpPostgres(ctx, opts, writer)
 	case core.EngineMySQL, core.EngineMariaDB:
 		written, err = dumpMySQLFamily(ctx, opts, writer)
+	case core.EngineMSSQL:
+		written, err = dumpMSSQL(ctx, opts, writer)
 	default:
 		err = fmt.Errorf("unsupported engine: %s", opts.Engine)
 	}
@@ -221,6 +228,151 @@ func dumpMySQLFamily(ctx context.Context, opts Options, w io.Writer) (int64, err
 		cmd.Env = append(os.Environ(), "MYSQL_PWD="+opts.Password)
 	}
 	return runPiped(cmd, w)
+}
+
+// dumpMSSQL backs up a single SQL Server / SQL Server Express database via
+// sqlcmd's native BACKUP DATABASE statement.
+//
+// This engine works fundamentally differently from the others: pg_dump and
+// mysqldump stream a portable text dump to stdout, so GoBackup can pipe and
+// compress it directly without ever touching the database server's own
+// disk — including over a real network connection to a remote host.
+// SQL Server has no such tool: BACKUP DATABASE is always executed BY the
+// SQL Server engine itself, which writes the resulting .bak file to a path
+// on ITS OWN filesystem, not the client's. There is no way around this; it
+// is how SQL Server backups work natively.
+//
+// Consequently this only works when the GoBackup agent runs on the SAME
+// machine as the SQL Server instance (the common case for SQL Server
+// Express, which is typically installed alongside the application it
+// serves) — so the path SQL Server writes to is also a path this process
+// can read back from. A genuinely remote mssql Host (a separate database
+// server reachable only over the network) is not supported: see the error
+// below when the produced .bak can't be opened locally.
+//
+// "All databases" isn't supported either — unlike mysqldump/pg_dumpall,
+// SQL Server has no single-file-all-databases backup; each database's
+// BACKUP DATABASE produces its own independent .bak. A caller wanting
+// every database must create one job per database.
+func dumpMSSQL(ctx context.Context, opts Options, w io.Writer) (int64, error) {
+	if opts.Database == "" || opts.Database == core.AllDatabasesSentinel {
+		return 0, fmt.Errorf("mssql: selecione um banco de dados específico — o SQL Server não tem um backup único de \"todos os bancos\" como o mysqldump/pg_dumpall; crie uma tarefa por banco")
+	}
+
+	backupDir, err := mssqlBackupDir(ctx, opts)
+	if err != nil {
+		return 0, fmt.Errorf("descobrir pasta de backup do SQL Server: %w", err)
+	}
+
+	tmpName := fmt.Sprintf("gobackup-%s-%d.bak", opts.Database, time.Now().UnixNano())
+	tmpPath := filepath.Join(backupDir, tmpName)
+
+	backupSQL := fmt.Sprintf(
+		"SET NOCOUNT ON; BACKUP DATABASE [%s] TO DISK = N'%s' WITH INIT, COPY_ONLY;",
+		mssqlEscapeIdent(opts.Database), mssqlEscapePathLiteral(tmpPath),
+	)
+	cmd := exec.CommandContext(ctx, "sqlcmd", append(sqlcmdConnArgs(opts), "-b", "-Q", backupSQL)...)
+	if opts.Password != "" {
+		cmd.Env = append(os.Environ(), "SQLCMDPASSWORD="+opts.Password)
+	}
+	var stderr strings.Builder
+	cmd.Stdout = &stderr // sqlcmd prints progress ("10 percent processed") to stdout too; capture both for the error message
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return 0, fmt.Errorf("sqlcmd BACKUP DATABASE falhou: %w (saída: %s)", err, strings.TrimSpace(stderr.String()))
+	}
+	defer os.Remove(tmpPath)
+
+	f, err := os.Open(tmpPath)
+	if err != nil {
+		return 0, fmt.Errorf("abrir o .bak que o SQL Server gerou em %q: %w — isso normalmente significa que o agente GoBackup não está rodando na MESMA máquina da instância SQL Server (BACKUP DATABASE sempre escreve no disco do próprio servidor)", tmpPath, err)
+	}
+	defer f.Close()
+
+	// Chunked copy (not plain io.Copy) so a cancelled backup actually stops
+	// reading instead of streaming a multi-GB .bak to completion regardless
+	// — same reasoning as dumpSQLite above.
+	buf := make([]byte, 4*1024*1024)
+	var total int64
+	for {
+		select {
+		case <-ctx.Done():
+			return total, ctx.Err()
+		default:
+		}
+		n, rerr := f.Read(buf)
+		if n > 0 {
+			wn, werr := w.Write(buf[:n])
+			total += int64(wn)
+			if werr != nil {
+				return total, werr
+			}
+		}
+		if rerr == io.EOF {
+			return total, nil
+		}
+		if rerr != nil {
+			return total, rerr
+		}
+	}
+}
+
+// mssqlBackupDir asks the SQL Server instance for its own configured
+// default backup directory (set correctly for the SQL Server service
+// account's write permissions since install time — reusing it sidesteps
+// having to grant that account access to some other folder ourselves).
+func mssqlBackupDir(ctx context.Context, opts Options) (string, error) {
+	query := "SET NOCOUNT ON; SELECT CAST(SERVERPROPERTY('InstanceDefaultBackupPath') AS NVARCHAR(4000));"
+	cmd := exec.CommandContext(ctx, "sqlcmd", append(sqlcmdConnArgs(opts), "-b", "-h", "-1", "-W", "-Q", query)...)
+	if opts.Password != "" {
+		cmd.Env = append(os.Environ(), "SQLCMDPASSWORD="+opts.Password)
+	}
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("%w (saída: %s)", err, strings.TrimSpace(stderr.String()))
+	}
+	dir := strings.TrimSpace(string(out))
+	if dir == "" {
+		return "", fmt.Errorf("a instância não retornou um caminho de backup padrão")
+	}
+	return dir, nil
+}
+
+// sqlcmdConnArgs builds the -S/-U/-E portion shared by every sqlcmd
+// invocation. With no Username, "-E" requests Windows/trusted
+// authentication (the common case for a co-located SQL Express instance);
+// with one, SQL authentication is used and the password is supplied via
+// the SQLCMDPASSWORD environment variable by the caller, never on argv.
+func sqlcmdConnArgs(opts Options) []string {
+	server := "localhost"
+	if opts.Host != "" {
+		server = opts.Host
+	}
+	if opts.Port != 0 {
+		server = fmt.Sprintf("tcp:%s,%d", server, opts.Port)
+	}
+	args := []string{"-S", server, "-C"} // -C: trust the server certificate (SQL Express's default self-signed cert otherwise blocks every connection)
+	if opts.Username != "" {
+		args = append(args, "-U", opts.Username)
+	} else {
+		args = append(args, "-E")
+	}
+	return args
+}
+
+// mssqlEscapeIdent escapes a database name for use inside a bracketed
+// T-SQL identifier ("[name]") — doubling any literal "]" is the one
+// character bracketed identifiers need escaped.
+func mssqlEscapeIdent(name string) string {
+	return strings.ReplaceAll(name, "]", "]]")
+}
+
+// mssqlEscapePathLiteral escapes a file path for use inside a T-SQL
+// N'...' string literal — doubling any literal single quote.
+func mssqlEscapePathLiteral(path string) string {
+	return strings.ReplaceAll(path, "'", "''")
 }
 
 func runPiped(cmd *exec.Cmd, w io.Writer) (int64, error) {

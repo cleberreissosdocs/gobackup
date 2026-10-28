@@ -310,7 +310,7 @@ func cmdRunDB(args []string) {
 	fs := flag.NewFlagSet("run-db", flag.ExitOnError)
 	connString := fs.String("db", "", "agent's local Postgres connection string")
 	name := fs.String("name", "", "job name")
-	engine := fs.String("engine", "", "mariadb|mysql|postgresql|sqlite")
+	engine := fs.String("engine", "", "mariadb|mysql|postgresql|sqlite|mssql")
 	host := fs.String("host", "", "database host (not used for sqlite)")
 	port := fs.Int("port", 0, "database port (not used for sqlite)")
 	user := fs.String("user", "", "database username (not used for sqlite)")
@@ -331,12 +331,15 @@ func cmdRunDB(args []string) {
 	}
 	eng := core.DBEngine(*engine)
 	switch eng {
-	case core.EngineMariaDB, core.EngineMySQL, core.EnginePostgreSQL, core.EngineSQLite:
+	case core.EngineMariaDB, core.EngineMySQL, core.EnginePostgreSQL, core.EngineSQLite, core.EngineMSSQL:
 	default:
 		fatal("invalid -engine: " + *engine)
 	}
 	if eng == core.EngineSQLite && *sqlitePath == "" {
 		fatal("engine=sqlite requires -sqlite-path")
+	}
+	if eng == core.EngineMSSQL && *database == "" {
+		fatal("engine=mssql requires -database (SQL Server has no single all-databases backup)")
 	}
 
 	pw := *password

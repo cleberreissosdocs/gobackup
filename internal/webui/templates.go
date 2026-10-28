@@ -637,6 +637,7 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
       <option value="mysql">MySQL</option>
       <option value="mariadb">MariaDB</option>
       <option value="sqlite">SQLite</option>
+      <option value="mssql">SQL Server / SQL Server Express</option>
     </select>
   </div>
   <div class="gb-db-server">Host: <input type="text" name="host"></div>
@@ -815,6 +816,7 @@ var editDBTmpl = template.Must(template.New("edit-db").Funcs(funcs).Parse(`
       <option value="mysql" {{if eq .Job.Engine "mysql"}}selected{{end}}>MySQL</option>
       <option value="mariadb" {{if eq .Job.Engine "mariadb"}}selected{{end}}>MariaDB</option>
       <option value="sqlite" {{if eq .Job.Engine "sqlite"}}selected{{end}}>SQLite</option>
+      <option value="mssql" {{if eq .Job.Engine "mssql"}}selected{{end}}>SQL Server / SQL Server Express</option>
     </select>
   </div>
   <div class="gb-db-server">Host: <input type="text" name="host" value="{{.Job.Host}}"></div>

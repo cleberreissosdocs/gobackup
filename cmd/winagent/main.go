@@ -78,10 +78,12 @@ Usage:
       testing on this machine. Destination can be local/NAS (a plain path)
       or SSH (pure-Go SFTP upload, no external ssh.exe/rsync needed).
 
-  gobackup-winagent create-db-job -name <nome> -engine postgresql|mysql|mariadb|sqlite -dest <dir> [DB connection flags] [SSH dest flags] [-retention-days N]
+  gobackup-winagent create-db-job -name <nome> -engine postgresql|mysql|mariadb|sqlite|mssql -dest <dir> [DB connection flags] [SSH dest flags] [-retention-days N]
       Creates a database-dump job locally. Requires pg_dump/pg_dumpall
-      (PostgreSQL) or mysqldump (MySQL/MariaDB) to be installed and on
-      PATH; SQLite needs nothing extra (plain file copy).
+      (PostgreSQL), mysqldump (MySQL/MariaDB) or sqlcmd (SQL Server/SQL
+      Server Express — must run on the SAME machine as the instance) to
+      be installed and on PATH; SQLite needs nothing extra (plain file
+      copy).
 
   gobackup-winagent list-jobs
       Lists locally-known jobs (both kinds) and their last run status.
@@ -206,7 +208,7 @@ func cmdLocalCreateJob(args []string) {
 func cmdLocalCreateDBJob(args []string) {
 	fs := flag.NewFlagSet("create-db-job", flag.ExitOnError)
 	name := fs.String("name", "", "job name")
-	engine := fs.String("engine", "", "postgresql|mysql|mariadb|sqlite")
+	engine := fs.String("engine", "", "postgresql|mysql|mariadb|sqlite|mssql")
 	host := fs.String("host", "", "DB host (empty for sqlite)")
 	port := fs.Int("port", 0, "DB port (0 = engine default)")
 	username := fs.String("username", "", "DB username")

@@ -43,7 +43,7 @@ type FileJobRequest struct {
 // the UI hint).
 type DBJobRequest struct {
 	Name        string
-	Engine      string // mariadb|mysql|postgresql|sqlite
+	Engine      string // mariadb|mysql|postgresql|sqlite|mssql
 	Host        string
 	Port        int
 	Username    string

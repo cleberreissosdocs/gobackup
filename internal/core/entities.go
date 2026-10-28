@@ -44,6 +44,7 @@ const (
 	EngineMySQL      DBEngine = "mysql"
 	EnginePostgreSQL DBEngine = "postgresql"
 	EngineSQLite     DBEngine = "sqlite"
+	EngineMSSQL      DBEngine = "mssql"
 )
 
 // AllDatabasesSentinel is the database_name value meaning "dump every

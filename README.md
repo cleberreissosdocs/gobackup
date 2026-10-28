@@ -12,9 +12,19 @@ decisões de arquitetura). Este README é o guia prático de build/deploy/uso.
 
 - **Arquivos** (via `rsync`) — completo, incremental ou diferencial, com
   destino local, NAS (pasta de rede) ou SSH (outro servidor).
-- **Banco de dados** — MariaDB, MySQL, PostgreSQL e SQLite. Pode fazer
-  backup de um banco específico ou de todos de uma vez, com compressão
+- **Banco de dados** — MariaDB, MySQL, PostgreSQL, SQLite e SQL Server / SQL
+  Server Express. Pode fazer backup de um banco específico (ou de todos de
+  uma vez, exceto SQL Server — ver observação abaixo) com compressão
   opcional (gzip, zip ou nenhuma).
+
+  > SQL Server usa seu próprio backup nativo (`BACKUP DATABASE`), que sempre
+  > escreve no disco do próprio servidor — por isso o agente GoBackup
+  > precisa rodar na MESMA máquina da instância SQL Server/SQL Server
+  > Express (o caso comum). Requer `sqlcmd` instalado e no PATH — Windows:
+  > [baixe aqui](https://github.com/microsoft/go-sqlcmd/releases) ou use o
+  > `sqlcmd.exe` que já vem com o SQL Server Command Line Utilities; Linux:
+  > já incluído na imagem Docker do agente. Não suporta "todos os bancos"
+  > num único arquivo — crie uma tarefa por banco.
 
 Ambos criados e disparados pela interface web (local do agente ou
 remotamente pelo Central) ou pela CLI — veja a seção **Uso** mais abaixo
@@ -109,9 +119,10 @@ Veja as seções **Deploy com Docker** e **Deploy nativo** mais abaixo.
 ## Componentes
 
 - **gobackup-agent** — instalado em cada servidor a proteger. Orquestra
-  `rsync` (backup de arquivos) e `mysqldump`/`pg_dump`/`pg_dumpall`/cópia de
-  arquivo (backup de banco: MariaDB, MySQL, PostgreSQL, SQLite). Tem sua
-  própria interface web de administração e seu próprio Postgres local.
+  `rsync` (backup de arquivos) e `mysqldump`/`pg_dump`/`pg_dumpall`/`sqlcmd`/cópia
+  de arquivo (backup de banco: MariaDB, MySQL, PostgreSQL, SQLite, SQL
+  Server). Tem sua própria interface web de administração e seu próprio
+  Postgres local.
 - **gobackup-central** — hospedado em infraestrutura separada. Painel web
   com status de todos os agentes (online/offline, última execução), e pode
   administrar qualquer agente remotamente com as mesmas opções da UI local

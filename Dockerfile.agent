@@ -2,7 +2,11 @@
 # Runtime image includes the tools the agent shells out to:
 # rsync (file backups), openssh-client (ssh destinations / known_hosts),
 # postgresql-client (pg_dump/pg_dumpall), mariadb-client (mysqldump, works
-# for both MySQL and MariaDB), sqlite (sqlite3 CLI, optional .backup mode).
+# for both MySQL and MariaDB), sqlite (sqlite3 CLI, optional .backup mode),
+# sqlcmd (SQL Server/SQL Server Express — Microsoft's official Go rewrite,
+# github.com/microsoft/go-sqlcmd: a single static binary with no ODBC/glibc
+# dependency, so it actually runs on Alpine/musl, unlike the classic
+# ODBC-based mssql-tools package which doesn't).
 
 FROM golang:1.26-alpine AS build
 WORKDIR /src
@@ -12,6 +16,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/gobackup-agent ./cmd/agent
 
 FROM alpine:3.20
+ARG SQLCMD_VERSION=v1.10.0
 RUN apk add --no-cache \
       rsync \
       openssh-client \
@@ -20,7 +25,14 @@ RUN apk add --no-cache \
       sqlite \
       ca-certificates \
       tzdata \
-      tini
+      tini \
+      curl \
+    && curl -fsSL -o /tmp/sqlcmd.tar.bz2 \
+      "https://github.com/microsoft/go-sqlcmd/releases/download/${SQLCMD_VERSION}/sqlcmd-linux-amd64.tar.bz2" \
+    && tar -xjf /tmp/sqlcmd.tar.bz2 -C /usr/local/bin sqlcmd \
+    && chmod +x /usr/local/bin/sqlcmd \
+    && rm /tmp/sqlcmd.tar.bz2 \
+    && apk del curl
 COPY --from=build /out/gobackup-agent /usr/local/bin/gobackup-agent
 WORKDIR /data
 # tini as PID 1 (not gobackup-agent directly): a cancelled file-mirror job
