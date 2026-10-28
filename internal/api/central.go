@@ -48,6 +48,8 @@ func (s *Server) routes() {
 	s.Mux.HandleFunc("POST /agents/{id}/rename", s.Auth.RequireLoginAndCSRF(s.handleRenameAgentSubmit))
 	s.Mux.HandleFunc("GET /notifications", s.Auth.RequireLogin(s.handleNotificationsPage))
 	s.Mux.HandleFunc("POST /notifications", s.Auth.RequireLoginAndCSRF(s.handleNotificationsSubmit))
+	s.Mux.HandleFunc("POST /notifications/{id}/test", s.Auth.RequireLoginAndCSRF(s.handleTestNotificationChannel))
+	s.Mux.HandleFunc("POST /notifications/{id}/delete", s.Auth.RequireLoginAndCSRF(s.handleDeleteNotificationChannel))
 	s.Mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
@@ -375,6 +377,7 @@ a.status-running:hover { filter: brightness(1.15); }
 .status-failed { color: var(--gb-danger); background: var(--gb-danger-bg); }
 .status-pending, .status-running, .status-acked, .status-delivered { color: var(--gb-warning); background: var(--gb-warning-bg); }
 .notice { background: var(--gb-success-bg); border:1px solid rgba(46,204,113,0.35); color:#9ee8b4; padding:0.7rem 1.1rem; border-radius: var(--gb-radius-sm); max-width:480px; }
+.notice.gb-notice-bad { background: var(--gb-danger-bg); border:1px solid rgba(231,76,60,0.35); color:#f5a9a0; }
 .error { color: var(--gb-danger); }
 small { color: var(--gb-text-muted); }
 `
@@ -398,7 +401,35 @@ var notificationsTmpl = template.Must(template.New("notifications").Parse(`<!doc
   </nav>
   <div id="gb-content">
   <h1>Canais de notificação</h1>
-{{if .Message}}<p class="notice">{{.Message}}</p>{{end}}
+{{if .Message}}<p class="notice{{if .IsError}} gb-notice-bad{{end}}">{{.Message}}</p>{{end}}
+
+{{if .Channels}}
+<div class="gb-card">
+<table>
+<tr><th>Tipo</th><th>Destino</th><th>Eventos</th><th></th></tr>
+{{range .Channels}}
+<tr>
+  <td>{{if eq .Type "email"}}E-mail{{else}}Telegram{{end}}</td>
+  <td>{{.Summary}}</td>
+  <td>{{if .Events}}{{.Events}}{{else}}<small>todos</small>{{end}}</td>
+  <td style="white-space:nowrap;">
+    <form method="post" action="/notifications/{{.ID}}/test" style="display:inline">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      <button type="submit">Testar envio</button>
+    </form>
+    <span style="display:inline-block; width:1rem;"></span>
+    <form method="post" action="/notifications/{{.ID}}/delete" style="display:inline" onsubmit="return confirm('Apagar este canal de notificação?');">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      <button type="submit" class="secondary">Apagar</button>
+    </form>
+  </td>
+</tr>
+{{end}}
+</table>
+</div>
+<p></p>
+{{end}}
+
 <form method="post" action="/notifications">
   <input type="hidden" name="csrf_token" value="{{.CSRF}}">
   <div>Tipo:
@@ -429,8 +460,51 @@ var notificationsTmpl = template.Must(template.New("notifications").Parse(`<!doc
 </html>`))
 
 func (s *Server) handleNotificationsPage(w http.ResponseWriter, r *http.Request) {
+	s.renderNotificationsPage(w, r, "", false)
+}
+
+// notificationChannelView is the display-safe shape for the channels list:
+// no secrets (SMTP password, bot token) ever reach the template.
+type notificationChannelView struct {
+	ID      string
+	Type    string
+	Summary string
+	Events  string
+}
+
+func (s *Server) renderNotificationsPage(w http.ResponseWriter, r *http.Request, message string, isError bool) {
+	ctx := r.Context()
+	tenantID, err := s.Store.EnsureDefaultTenant(ctx)
+	if err != nil {
+		log.Println("notifications: ensure tenant:", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	rows, err := s.Store.ListNotificationChannels(ctx, tenantID)
+	if err != nil {
+		log.Println("notifications: list:", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	views := make([]notificationChannelView, 0, len(rows))
+	for _, c := range rows {
+		v := notificationChannelView{ID: c.ID.String(), Type: c.Type, Events: strings.Join(c.Events, ", ")}
+		switch c.Type {
+		case "email":
+			v.Summary = fmt.Sprintf("%v", c.Config["to"])
+		case "telegram":
+			v.Summary = fmt.Sprintf("chat %v", c.Config["chat_id"])
+		}
+		views = append(views, v)
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	notificationsTmpl.Execute(w, map[string]any{"CSRF": s.Auth.CSRFToken(r)})
+	notificationsTmpl.Execute(w, map[string]any{
+		"Message":  message,
+		"IsError":  isError,
+		"Channels": views,
+		"CSRF":     s.Auth.CSRFToken(r),
+	})
 }
 
 func (s *Server) handleNotificationsSubmit(w http.ResponseWriter, r *http.Request) {
@@ -473,8 +547,89 @@ func (s *Server) handleNotificationsSubmit(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	notificationsTmpl.Execute(w, map[string]any{"Message": "Canal adicionado com sucesso.", "CSRF": s.Auth.CSRFToken(r)})
+	s.renderNotificationsPage(w, r, "Canal adicionado com sucesso.", false)
+}
+
+// handleTestNotificationChannel sends a real test message through a saved
+// channel right now, using exactly the stored config — the only reliable
+// way to confirm SMTP credentials/bot token actually work, instead of just
+// trusting the form was filled correctly.
+func (s *Server) handleTestNotificationChannel(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	tenantID, err := s.Store.EnsureDefaultTenant(ctx)
+	if err != nil {
+		log.Println("notifications: ensure tenant:", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	rows, err := s.Store.ListNotificationChannels(ctx, tenantID)
+	if err != nil {
+		log.Println("notifications: list:", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	var ch *db.NotificationChannelRow
+	for i := range rows {
+		if rows[i].ID == id {
+			ch = &rows[i]
+			break
+		}
+	}
+	if ch == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	const subject = "GoBackup — mensagem de teste"
+	const message = "Esta é uma mensagem de teste enviada pelo painel GoBackup Central. " +
+		"Se você recebeu isso, este canal de notificação está configurado corretamente."
+
+	var sendErr error
+	raw, _ := json.Marshal(ch.Config)
+	switch ch.Type {
+	case "email":
+		var cfg notify.EmailConfig
+		json.Unmarshal(raw, &cfg)
+		sendErr = notify.SendEmail(cfg, subject, message)
+	case "telegram":
+		var cfg notify.TelegramConfig
+		json.Unmarshal(raw, &cfg)
+		sendErr = notify.SendTelegram(cfg, subject+"\n\n"+message)
+	default:
+		sendErr = fmt.Errorf("tipo de canal desconhecido: %s", ch.Type)
+	}
+
+	if sendErr != nil {
+		s.renderNotificationsPage(w, r, "Falha ao enviar o teste: "+sendErr.Error(), true)
+		return
+	}
+	s.renderNotificationsPage(w, r, "Mensagem de teste enviada com sucesso! Confira a caixa de entrada/chat.", false)
+}
+
+func (s *Server) handleDeleteNotificationChannel(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	tenantID, err := s.Store.EnsureDefaultTenant(ctx)
+	if err != nil {
+		log.Println("notifications: ensure tenant:", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if err := s.Store.DeleteNotificationChannel(ctx, tenantID, id); err != nil {
+		log.Println("notifications: delete:", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	s.renderNotificationsPage(w, r, "Canal removido.", false)
 }
 
 var dashboardTmpl = template.Must(template.New("dashboard").Funcs(template.FuncMap{

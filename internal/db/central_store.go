@@ -251,6 +251,13 @@ func (s *Store) ListNotificationChannels(ctx context.Context, tenantID uuid.UUID
 	return out, rows.Err()
 }
 
+// DeleteNotificationChannel removes an alert channel. Scoped by tenant so
+// one tenant can never delete another's channel by guessing an ID.
+func (s *Store) DeleteNotificationChannel(ctx context.Context, tenantID, id uuid.UUID) error {
+	_, err := s.Pool.Exec(ctx, `DELETE FROM notification_channels WHERE id = $1 AND tenant_id = $2`, id, tenantID)
+	return err
+}
+
 // MarkAgentOfflineNotified / ClearAgentOfflineNotified debounce the
 // "agent went offline" alert so it fires once per outage, not on every
 // dashboard poll/background check.
