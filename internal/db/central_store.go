@@ -258,6 +258,15 @@ func (s *Store) DeleteNotificationChannel(ctx context.Context, tenantID, id uuid
 	return err
 }
 
+// UpdateNotificationChannel overwrites an existing channel's config.
+// Scoped by tenant for the same reason as DeleteNotificationChannel.
+func (s *Store) UpdateNotificationChannel(ctx context.Context, tenantID, id uuid.UUID, config map[string]any) error {
+	_, err := s.Pool.Exec(ctx, `
+		UPDATE notification_channels SET config = $1 WHERE id = $2 AND tenant_id = $3
+	`, config, id, tenantID)
+	return err
+}
+
 // MarkAgentOfflineNotified / ClearAgentOfflineNotified debounce the
 // "agent went offline" alert so it fires once per outage, not on every
 // dashboard poll/background check.

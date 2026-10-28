@@ -49,6 +49,8 @@ func (s *Server) routes() {
 	s.Mux.HandleFunc("GET /notifications", s.Auth.RequireLogin(s.handleNotificationsPage))
 	s.Mux.HandleFunc("POST /notifications", s.Auth.RequireLoginAndCSRF(s.handleNotificationsSubmit))
 	s.Mux.HandleFunc("POST /notifications/{id}/test", s.Auth.RequireLoginAndCSRF(s.handleTestNotificationChannel))
+	s.Mux.HandleFunc("GET /notifications/{id}/edit", s.Auth.RequireLogin(s.handleEditNotificationChannelPage))
+	s.Mux.HandleFunc("POST /notifications/{id}/update", s.Auth.RequireLoginAndCSRF(s.handleUpdateNotificationChannel))
 	s.Mux.HandleFunc("POST /notifications/{id}/delete", s.Auth.RequireLoginAndCSRF(s.handleDeleteNotificationChannel))
 	s.Mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -418,6 +420,8 @@ var notificationsTmpl = template.Must(template.New("notifications").Parse(`<!doc
       <button type="submit">Testar envio</button>
     </form>
     <span style="display:inline-block; width:1rem;"></span>
+    <a href="/notifications/{{.ID}}/edit"><button type="button" class="secondary">Editar</button></a>
+    <span style="display:inline-block; width:1rem;"></span>
     <form method="post" action="/notifications/{{.ID}}/delete" style="display:inline" onsubmit="return confirm('Apagar este canal de notificação?');">
       <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
       <button type="submit" class="secondary">Apagar</button>
@@ -468,6 +472,208 @@ var notificationsTmpl = template.Must(template.New("notifications").Parse(`<!doc
 
 func (s *Server) handleNotificationsPage(w http.ResponseWriter, r *http.Request) {
 	s.renderNotificationsPage(w, r, "", false)
+}
+
+// notificationEditTmpl mirrors the create form but is pre-filled from a
+// saved channel. Secrets (SMTP password, bot token) are never pre-filled —
+// leaving them blank on submit keeps the currently stored secret unchanged,
+// same convention as most admin panels, so editing the host doesn't force
+// re-typing a password you don't have handy.
+var notificationEditTmpl = template.Must(template.New("notification_edit").Parse(`<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>GoBackup Central — Editar canal de notificação</title>
+<link rel="icon" href="/favicon.ico">
+<style>` + gbCentralCSS + `</style>
+</head>
+<body>
+<nav><a href="/"><img src="/logo.png" alt="">GoBackup Central</a>
+<div style="display:flex; align-items:center; gap:1.25rem;">
+  <a href="/notifications">Canais de notificação</a>
+  <a href="/dashboard">Dashboard</a>
+  <a href="/users">Usuários</a>
+  <form class="logout" method="post" action="/logout"><button type="submit">Sair</button></form>
+  </div>
+  </nav>
+  <div id="gb-content">
+  <h1>Editar canal de notificação</h1>
+{{if .Message}}<p class="notice gb-notice-bad">{{.Message}}</p>{{end}}
+
+<form method="post" action="/notifications/{{.ID}}/update">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+{{if eq .Type "email"}}
+  <fieldset>
+  <legend>E-mail</legend>
+  <div>SMTP host: <input type="text" name="smtp_host" value="{{.SMTPHost}}"></div>
+  <div>SMTP porta: <input type="number" name="smtp_port" value="{{.SMTPPort}}"></div>
+  <div>Criptografia:
+    <select name="encryption">
+      <option value="" {{if eq .Encryption ""}}selected{{end}}>Automático (STARTTLS se disponível) — recomendado</option>
+      <option value="ssl" {{if eq .Encryption "ssl"}}selected{{end}}>SSL/TLS implícito (porta 465)</option>
+      <option value="none" {{if eq .Encryption "none"}}selected{{end}}>Nenhuma (apenas relay interno confiável)</option>
+    </select>
+  </div>
+  <div>Usuário SMTP (opcional): <input type="text" name="smtp_user" value="{{.Username}}"></div>
+  <div>Senha SMTP: <input type="password" name="smtp_password" placeholder="deixe em branco para manter a atual"></div>
+  <div>De: <input type="text" name="from" value="{{.From}}"></div>
+  <div>Para: <input type="text" name="to" value="{{.To}}"></div>
+  </fieldset>
+{{else}}
+  <fieldset>
+  <legend>Telegram</legend>
+  <div>Bot token: <input type="text" name="bot_token" placeholder="deixe em branco para manter o atual"></div>
+  <div>Chat ID: <input type="text" name="chat_id" value="{{.ChatID}}"></div>
+  </fieldset>
+{{end}}
+  <button type="submit">Salvar alterações</button>
+</form>
+<p><a href="/notifications">&larr; voltar aos canais de notificação</a></p>
+</div>
+</body>
+</html>`))
+
+// notificationChannelEditView feeds notificationEditTmpl; secret fields
+// (Password/BotToken) are intentionally absent — they are never read back
+// into an HTML form.
+type notificationChannelEditView struct {
+	ID         string
+	Type       string
+	SMTPHost   string
+	SMTPPort   int
+	Encryption string
+	Username   string
+	From       string
+	To         string
+	ChatID     string
+	CSRF       string
+	Message    string
+}
+
+// findNotificationChannel fetches one tenant-scoped channel by ID, or nil
+// if it doesn't exist (including belonging to a different tenant).
+func (s *Server) findNotificationChannel(ctx context.Context, tenantID, id uuid.UUID) (*db.NotificationChannelRow, error) {
+	rows, err := s.Store.ListNotificationChannels(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		if rows[i].ID == id {
+			return &rows[i], nil
+		}
+	}
+	return nil, nil
+}
+
+func (s *Server) handleEditNotificationChannelPage(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	tenantID, err := s.Store.EnsureDefaultTenant(ctx)
+	if err != nil {
+		log.Println("notifications: ensure tenant:", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	ch, err := s.findNotificationChannel(ctx, tenantID, id)
+	if err != nil {
+		log.Println("notifications: find:", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if ch == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	view := notificationChannelEditView{ID: ch.ID.String(), Type: ch.Type, CSRF: s.Auth.CSRFToken(r)}
+	switch ch.Type {
+	case "email":
+		view.SMTPHost, _ = ch.Config["smtp_host"].(string)
+		if p, ok := ch.Config["smtp_port"].(float64); ok {
+			view.SMTPPort = int(p)
+		}
+		view.Encryption, _ = ch.Config["encryption"].(string)
+		view.Username, _ = ch.Config["username"].(string)
+		view.From, _ = ch.Config["from"].(string)
+		view.To, _ = ch.Config["to"].(string)
+	case "telegram":
+		view.ChatID, _ = ch.Config["chat_id"].(string)
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	notificationEditTmpl.Execute(w, view)
+}
+
+func (s *Server) handleUpdateNotificationChannel(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	tenantID, err := s.Store.EnsureDefaultTenant(ctx)
+	if err != nil {
+		log.Println("notifications: ensure tenant:", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	ch, err := s.findNotificationChannel(ctx, tenantID, id)
+	if err != nil {
+		log.Println("notifications: find:", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if ch == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	r.ParseForm()
+	var config map[string]any
+	switch ch.Type {
+	case "email":
+		port := 587
+		fmt.Sscanf(r.FormValue("smtp_port"), "%d", &port)
+		password := r.FormValue("smtp_password")
+		if password == "" {
+			// Blank means "keep the current secret" — never force the
+			// admin to re-type a password just to fix the hostname.
+			password, _ = ch.Config["password"].(string)
+		}
+		config = map[string]any{
+			"smtp_host":  r.FormValue("smtp_host"),
+			"smtp_port":  port,
+			"encryption": r.FormValue("encryption"),
+			"username":   r.FormValue("smtp_user"),
+			"password":   password,
+			"from":       r.FormValue("from"),
+			"to":         r.FormValue("to"),
+		}
+	case "telegram":
+		botToken := r.FormValue("bot_token")
+		if botToken == "" {
+			botToken, _ = ch.Config["bot_token"].(string)
+		}
+		config = map[string]any{
+			"bot_token": botToken,
+			"chat_id":   r.FormValue("chat_id"),
+		}
+	default:
+		httpError(w, http.StatusBadRequest, "tipo inválido")
+		return
+	}
+
+	if err := s.Store.UpdateNotificationChannel(ctx, tenantID, id, config); err != nil {
+		log.Println("notifications: update:", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	s.renderNotificationsPage(w, r, "Canal atualizado com sucesso.", false)
 }
 
 // notificationChannelView is the display-safe shape for the channels list:
@@ -575,18 +781,11 @@ func (s *Server) handleTestNotificationChannel(w http.ResponseWriter, r *http.Re
 		httpError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	rows, err := s.Store.ListNotificationChannels(ctx, tenantID)
+	ch, err := s.findNotificationChannel(ctx, tenantID, id)
 	if err != nil {
-		log.Println("notifications: list:", err)
+		log.Println("notifications: find:", err)
 		httpError(w, http.StatusInternalServerError, "internal error")
 		return
-	}
-	var ch *db.NotificationChannelRow
-	for i := range rows {
-		if rows[i].ID == id {
-			ch = &rows[i]
-			break
-		}
 	}
 	if ch == nil {
 		http.NotFound(w, r)
