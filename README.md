@@ -65,6 +65,20 @@ primeiro login — tudo com um único comando:
 curl -fsSL https://raw.githubusercontent.com/cleberreissosdocs/gobackup/main/scripts/install-agent.sh | bash
 ```
 
+> A primeira instalação compila a imagem do agente do zero (baixa
+> dependências, instala pacotes) — pode levar alguns minutos sem mostrar
+> muita coisa nova na tela, isso é normal, não travou. Se a sua conexão
+> SSH até o servidor for instável (VPN, túnel, link ruim), rode dentro de
+> um `tmux`/`screen` para a instalação continuar mesmo se a sessão cair:
+> ```bash
+> ssh usuario@servidor
+> tmux new -s gobackup
+> curl -fsSL https://raw.githubusercontent.com/cleberreissosdocs/gobackup/main/scripts/install-agent.sh | bash
+> # se a conexão cair: reconecte e rode "tmux attach -t gobackup" para ver onde ficou
+> ```
+> O script é seguro para rodar de novo caso precise — ele detecta o que já
+> foi feito e continua do ponto onde parou, sem duplicar nada.
+
 Ao final, o próprio script mostra o endereço (`https://<ip-do-servidor>:61081/`)
 e o login padrão (`admin` / `admin` — troque assim que entrar, em
 **Usuários**). É seguro reexecutar o mesmo comando depois (ex. pra
