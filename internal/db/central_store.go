@@ -450,15 +450,23 @@ type AllAgentsJobRow struct {
 	Cron       string
 	Enabled    bool
 	LastStatus string
+	// Percent is the live progress of a RUNNING job, from the separate
+	// agent_execution_status cache the heartbeat refreshes every tick
+	// (agent_jobs_cache's own last_status lags behind — it's only updated
+	// when a job starts/finishes, never mid-run). -1 when not running or
+	// when no execution-status row exists yet for this job.
+	Percent int
 }
 
 // ListAllAgentJobs returns the cached job list across every agent, for the
 // dashboard's "Tarefas de todos os servidores" table.
 func (s *Store) ListAllAgentJobs(ctx context.Context) ([]AllAgentsJobRow, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT c.agent_id, a.name, c.job_id, c.name, c.kind, c.cron, c.enabled, c.last_status
+		SELECT c.agent_id, a.name, c.job_id, c.name, c.kind, c.cron, c.enabled, c.last_status,
+		       COALESCE(e.percent, -1)
 		FROM agent_jobs_cache c
 		JOIN agents a ON a.id = c.agent_id
+		LEFT JOIN agent_execution_status e ON e.agent_id = c.agent_id AND e.job_id = c.job_id
 		ORDER BY a.name, c.name
 	`)
 	if err != nil {
@@ -468,7 +476,7 @@ func (s *Store) ListAllAgentJobs(ctx context.Context) ([]AllAgentsJobRow, error)
 	var out []AllAgentsJobRow
 	for rows.Next() {
 		var row AllAgentsJobRow
-		if err := rows.Scan(&row.AgentID, &row.AgentName, &row.JobID, &row.Name, &row.Kind, &row.Cron, &row.Enabled, &row.LastStatus); err != nil {
+		if err := rows.Scan(&row.AgentID, &row.AgentName, &row.JobID, &row.Name, &row.Kind, &row.Cron, &row.Enabled, &row.LastStatus, &row.Percent); err != nil {
 			return nil, err
 		}
 		out = append(out, row)

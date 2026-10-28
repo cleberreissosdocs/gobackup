@@ -378,6 +378,7 @@ a.status-running:hover { filter: brightness(1.15); }
 .status-success { color: var(--gb-success); background: var(--gb-success-bg); }
 .status-failed { color: var(--gb-danger); background: var(--gb-danger-bg); }
 .status-pending, .status-running, .status-acked, .status-delivered { color: var(--gb-warning); background: var(--gb-warning-bg); }
+.status-percent { display: block; font-size: 0.68rem; font-weight: 400; color: var(--gb-text-muted); line-height: 1.3; margin-top: 1px; }
 .notice { background: var(--gb-success-bg); border:1px solid rgba(46,204,113,0.35); color:#9ee8b4; padding:0.7rem 1.1rem; border-radius: var(--gb-radius-sm); max-width:480px; }
 .notice.gb-notice-bad { background: var(--gb-danger-bg); border:1px solid rgba(231,76,60,0.35); color:#f5a9a0; }
 .error { color: var(--gb-danger); }
@@ -901,7 +902,7 @@ tr.gb-row-offline td { color: var(--gb-text-faint); }
   <td>{{.Name}}{{if not .Enabled}} <small>(desabilitada)</small>{{end}}</td>
   <td>{{if eq .Kind "files"}}Arquivos{{else}}Banco de dados{{end}}</td>
   <td>{{if .Cron}}{{humanizeCron .Cron}}{{else}}<small>manual</small>{{end}}</td>
-  <td>{{if eq .JobStatus "running"}}<a href="/agents/{{.AgentID}}/jobs/{{.JobID}}/progress" class="status-running">Executando</a>{{else if eq .JobStatus "success"}}<span class="status-success">sucesso</span>{{else if eq .JobStatus "failed"}}<span class="status-failed">falhou</span>{{else}}<small>nunca executada</small>{{end}}</td>
+  <td>{{if eq .JobStatus "running"}}<a href="/agents/{{.AgentID}}/jobs/{{.JobID}}/progress" class="status-running">Executando</a>{{if ge .Percent 0}}<small class="status-percent">{{.Percent}}%</small>{{end}}{{else if eq .JobStatus "success"}}<span class="status-success">sucesso</span>{{else if eq .JobStatus "failed"}}<span class="status-failed">falhou</span>{{else}}<small>nunca executada</small>{{end}}</td>
   <td style="white-space:nowrap;">
     {{if .AgentOnline}}
     <a href="/agents/{{.AgentID}}/jobs/{{.JobID}}/edit">Editar</a>
@@ -953,6 +954,7 @@ type dashboardJobView struct {
 	Enabled     bool
 	AgentOnline bool
 	JobStatus   string
+	Percent     int
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -999,6 +1001,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		jobViews = append(jobViews, dashboardJobView{
 			AgentID: j.AgentID.String(), AgentName: j.AgentName, JobID: j.JobID, Name: j.Name, Kind: j.Kind,
 			Cron: j.Cron, Enabled: j.Enabled, AgentOnline: onlineByAgent[j.AgentID], JobStatus: j.LastStatus,
+			Percent: j.Percent,
 		})
 	}
 
