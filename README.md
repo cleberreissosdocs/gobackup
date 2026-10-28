@@ -94,13 +94,18 @@ Manuais em PDF, passo a passo com capturas de tela:
 ### Agente Windows
 
 Baixe o instalador (Windows 10/11, 64 bits):
-[**gobackup-agent-setup.exe**](https://github.com/cleberreissosdocs/gobackup/releases/download/windows-agent-v2/gobackup-agent-setup.exe)
+[**gobackup-agent-setup.exe**](https://github.com/cleberreissosdocs/gobackup/releases/download/windows-agent-v3/gobackup-agent-setup.exe)
 
 Dê duplo clique, siga o assistente (o Windows pode avisar via SmartScreen
 na primeira execução — clique em "Mais informações" → "Executar assim
 mesmo", é normal para um instalador interno sem assinatura paga). Ao
-terminar, o GoBackup fica rodando como ícone na bandeja do sistema e já
-inicia sozinho com o Windows.
+terminar, o GoBackup instala e inicia um **Windows Service** de verdade
+(`GoBackupAgent`, início automático) que faz os backups e mantém a
+conexão com o Central rodando **mesmo sem ninguém logado na máquina** —
+ideal para servidor em datacenter que fica a maior parte do tempo sem
+sessão aberta. O ícone na bandeja (que também já inicia sozinho, para
+quem loga na máquina) é só uma tela de status/configuração; a execução
+real não depende dele.
 
 Clique com o botão direito no ícone → **Configurações** (abre no
 navegador) e entre com a senha padrão `admin` (troque em seguida, tem
