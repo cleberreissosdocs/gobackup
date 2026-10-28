@@ -27,7 +27,7 @@ RUN apk add --no-cache \
       tzdata \
       tini \
       curl \
-    && curl -fsSL -o /tmp/sqlcmd.tar.bz2 \
+    && curl --connect-timeout 10 --max-time 60 --retry 2 -fsSL -o /tmp/sqlcmd.tar.bz2 \
       "https://github.com/microsoft/go-sqlcmd/releases/download/${SQLCMD_VERSION}/sqlcmd-linux-amd64.tar.bz2" \
     && tar -xjf /tmp/sqlcmd.tar.bz2 -C /usr/local/bin sqlcmd \
     && chmod +x /usr/local/bin/sqlcmd \

@@ -59,7 +59,7 @@ step "Verificando pré-requisitos"
 
 if ! command -v docker >/dev/null 2>&1; then
   warn "Docker não encontrado — instalando via script oficial (get.docker.com)..."
-  curl -fsSL https://get.docker.com | sh
+  curl --connect-timeout 10 --max-time 120 --retry 2 -fsSL https://get.docker.com | sh
   if ! command -v docker >/dev/null 2>&1; then
     die "Falha ao instalar o Docker automaticamente. Instale manualmente: https://docs.docker.com/engine/install/"
   fi
@@ -93,7 +93,7 @@ else
   warn "Plugin 'docker compose' não encontrado — instalando para o usuário atual (sem precisar de root)..."
   mkdir -p "$HOME/.docker/cli-plugins"
   ARCH="$(uname -m)"
-  curl -fsSL -o "$HOME/.docker/cli-plugins/docker-compose" \
+  curl --connect-timeout 10 --max-time 60 --retry 2 -fsSL -o "$HOME/.docker/cli-plugins/docker-compose" \
     "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-${ARCH}"
   chmod +x "$HOME/.docker/cli-plugins/docker-compose"
   if docker compose version >/dev/null 2>&1; then
