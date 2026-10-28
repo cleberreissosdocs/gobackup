@@ -8,6 +8,18 @@ servidores e também pode administrá-los remotamente.
 Ver `DESIGN.md` para o desenho técnico completo (modelo de dados, protocolo,
 decisões de arquitetura). Este README é o guia prático de build/deploy/uso.
 
+## Tipos de backup suportados
+
+- **Arquivos** (via `rsync`) — completo, incremental ou diferencial, com
+  destino local, NAS (pasta de rede) ou SSH (outro servidor).
+- **Banco de dados** — MariaDB, MySQL, PostgreSQL e SQLite. Pode fazer
+  backup de um banco específico ou de todos de uma vez, com compressão
+  opcional (gzip, zip ou nenhuma).
+
+Ambos criados e disparados pela interface web (local do agente ou
+remotamente pelo Central) ou pela CLI — veja a seção **Uso** mais abaixo
+para os comandos.
+
 ## Instalação rápida (recomendado)
 
 ### Central (painel)
