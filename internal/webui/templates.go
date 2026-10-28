@@ -879,7 +879,7 @@ var progressTmpl = template.Must(template.New("progress").Parse(`
     <div id="gb-progress-bar" style="height:100%; width:0%; background:#2d6cdf; transition: width 0.3s;"></div>
     <div id="gb-progress-label" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:0.85rem;">iniciando…</div>
   </div>
-  <p id="gb-progress-message" style="margin-top:0.8rem;"></p>
+  <p id="gb-progress-message" style="margin-top:0.8rem; white-space:pre-line;"></p>
   <div id="gb-progress-actions" style="display:none; gap:0.6rem;">
     {{if not .IsDatabase}}
     <button type="button" id="gb-btn-pause" class="secondary" onclick="gbControl('pause')">Pausar</button>

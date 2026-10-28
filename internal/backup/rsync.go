@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -289,7 +290,7 @@ func Run(ctx context.Context, sourcePath string, dest Destination, backupType co
 	}
 
 	if err := cmd.Wait(); err != nil {
-		return Result{RawOutput: out.String()}, fmt.Errorf("rsync failed: %w (output: %s)", err, out.String())
+		return Result{RawOutput: out.String()}, summarizeRunError(err, out.String())
 	}
 
 	res := Result{RawOutput: out.String()}
@@ -300,6 +301,70 @@ func Run(ctx context.Context, sourcePath string, dest Destination, backupType co
 		res.BytesTransferred = parseCount(m[1])
 	}
 	return res, nil
+}
+
+// unreadablePathRe matches rsync's "could not access this path" errors —
+// readlink_stat/readdir/lstat/open etc. all share the same two shapes:
+//
+//	rsync: [sender] readlink_stat("/path/to/thing") failed: No error information (117)
+//	rsync: [sender] readdir("/path/to/dir"): No error information (117)
+//
+// (errno 117 is EUCLEAN/"Structure needs cleaning" — filesystem-level
+// corruption at that exact path, the actual real-world case this was
+// written for, but the pattern covers any reason rsync reports this way:
+// permission denied, I/O error, stale handle, etc.)
+var unreadablePathRe = regexp.MustCompile(`rsync: \[(?:sender|receiver|generator)\] \w+\("([^"]+)"\)(?: failed)?: (.+)`)
+
+// summarizeRunError turns rsync's raw output on failure -- which can be
+// MEGABYTES for a job over millions of files/progress2 updates, as
+// confirmed live on a real backup (8.9MB stored verbatim as the error
+// message, 99.9% of it duplicate progress lines) -- into a short, human
+// message. When rsync named specific paths it couldn't read (by far the
+// most common real failure: source-side corruption, permissions,
+// vanished files), lists just those paths — a user has zero chance of
+// spotting 21 relevant lines buried in tens of thousands of progress
+// updates, which is exactly what was reported ("um monte de códigos").
+// Falls back to rsync's own last summary line for anything else, never
+// the raw multi-megabyte dump.
+func summarizeRunError(waitErr error, rawOutput string) error {
+	matches := unreadablePathRe.FindAllStringSubmatch(rawOutput, -1)
+	if len(matches) == 0 {
+		return fmt.Errorf("rsync falhou (%s): %s", waitErr, lastMeaningfulLine(rawOutput))
+	}
+
+	seen := make(map[string]bool, len(matches))
+	paths := make([]string, 0, len(matches))
+	for _, m := range matches {
+		if !seen[m[1]] {
+			seen[m[1]] = true
+			paths = append(paths, m[1])
+		}
+	}
+
+	const maxListed = 30
+	var b strings.Builder
+	b.WriteString("Alguns arquivos não puderam ser lidos (provável corrupção no disco de origem):")
+	for i, p := range paths {
+		if i >= maxListed {
+			fmt.Fprintf(&b, "\n... e mais %d arquivo(s)", len(paths)-maxListed)
+			break
+		}
+		fmt.Fprintf(&b, "\n- %s", p)
+	}
+	return errors.New(b.String())
+}
+
+// lastMeaningfulLine returns the last non-blank line of rsync's output —
+// typically its own "rsync error: ..." summary — instead of the entire
+// (potentially huge) capture.
+func lastMeaningfulLine(output string) string {
+	lines := strings.Split(strings.TrimRight(output, "\n"), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if line := strings.TrimSpace(lines[i]); line != "" {
+			return line
+		}
+	}
+	return "(sem saída)"
 }
 
 func ensureTrailingSlash(p string) string {
