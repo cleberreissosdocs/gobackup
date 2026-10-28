@@ -3,6 +3,7 @@ package backup
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -104,6 +105,41 @@ var percentRe = regexp.MustCompile(`(\d+)%`)
 // --info=progress2). percent is -1 when the line carries no percentage.
 type ProgressFunc func(percent int, line string)
 
+// scanLinesOrCR is a bufio.SplitFunc that treats a bare '\r' as a line
+// terminator, same as '\n' (collapsing '\r\n' into a single terminator,
+// matching bufio.ScanLines' own convention).
+//
+// rsync's --info=progress2 redraws its progress line IN PLACE using '\r'
+// alone (never '\n') for every intermediate update, only emitting a real
+// '\n' when a file finishes or at the very end — exactly how a terminal
+// progress bar works. bufio.ScanLines only splits on '\n', so without this
+// every single '\r' update kept accumulating into ONE ever-growing
+// "line" until the scanner's buffer cap was hit, Scan() silently returned
+// false (ErrTooLong, never checked), and the loop stopped draining
+// rsync's stdout pipe entirely. rsync then blocked forever trying to
+// WRITE its next progress update into the now-full, unread pipe —
+// confirmed live on a real job with enough directory churn to produce far
+// more than a buffer's worth of '\r' updates before its first real
+// newline: all three rsync processes (generator/sender/receiver) stuck in
+// "pipe_write"/"do_select", essentially zero CPU used for over an hour,
+// progress stuck at 0% forever since onProgress was never being called
+// again either.
+func scanLinesOrCR(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	if atEOF && len(data) == 0 {
+		return 0, nil, nil
+	}
+	if i := bytes.IndexAny(data, "\r\n"); i >= 0 {
+		if data[i] == '\r' && i+1 < len(data) && data[i+1] == '\n' {
+			return i + 2, data[:i], nil
+		}
+		return i + 1, data[:i], nil
+	}
+	if atEOF {
+		return len(data), data, nil
+	}
+	return 0, nil, nil
+}
+
 // Run executes an rsync file-tree backup from sourcePath to dest.
 //
 // backupType controls the rsync flags used:
@@ -183,6 +219,7 @@ func Run(ctx context.Context, sourcePath string, dest Destination, backupType co
 
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Split(scanLinesOrCR)
 	for scanner.Scan() {
 		line := scanner.Text()
 		out.WriteString(line)
@@ -196,6 +233,14 @@ func Run(ctx context.Context, sourcePath string, dest Destination, backupType co
 			}
 			onProgress(pct, line)
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		// Not fatal by itself (rsync might still finish and cmd.Wait()
+		// below will surface the real failure if any) but worth knowing
+		// about if this ever fires again — silently swallowing it is
+		// exactly how the progress-line-starvation deadlock below went
+		// unnoticed for so long.
+		out.WriteString(fmt.Sprintf("\n[gobackup: stopped reading rsync output: %v]\n", err))
 	}
 
 	if err := cmd.Wait(); err != nil {
