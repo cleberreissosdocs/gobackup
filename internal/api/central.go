@@ -441,7 +441,14 @@ var notificationsTmpl = template.Must(template.New("notifications").Parse(`<!doc
   <fieldset>
   <legend>E-mail</legend>
   <div>SMTP host: <input type="text" name="smtp_host"></div>
-  <div>SMTP porta: <input type="number" name="smtp_port" value="25"></div>
+  <div>SMTP porta: <input type="number" name="smtp_port" value="587"></div>
+  <div>Criptografia:
+    <select name="encryption">
+      <option value="">Automático (STARTTLS se disponível) — recomendado</option>
+      <option value="ssl">SSL/TLS implícito (porta 465)</option>
+      <option value="none">Nenhuma (apenas relay interno confiável)</option>
+    </select>
+  </div>
   <div>Usuário SMTP (opcional): <input type="text" name="smtp_user"></div>
   <div>Senha SMTP (opcional): <input type="password" name="smtp_password"></div>
   <div>De: <input type="text" name="from"></div>
@@ -515,15 +522,16 @@ func (s *Server) handleNotificationsSubmit(w http.ResponseWriter, r *http.Reques
 	var config map[string]any
 	switch chType {
 	case "email":
-		port := 25
+		port := 587
 		fmt.Sscanf(r.FormValue("smtp_port"), "%d", &port)
 		config = map[string]any{
-			"smtp_host": r.FormValue("smtp_host"),
-			"smtp_port": port,
-			"username":  r.FormValue("smtp_user"),
-			"password":  r.FormValue("smtp_password"),
-			"from":      r.FormValue("from"),
-			"to":        r.FormValue("to"),
+			"smtp_host":  r.FormValue("smtp_host"),
+			"smtp_port":  port,
+			"encryption": r.FormValue("encryption"),
+			"username":   r.FormValue("smtp_user"),
+			"password":   r.FormValue("smtp_password"),
+			"from":       r.FormValue("from"),
+			"to":         r.FormValue("to"),
 		}
 	case "telegram":
 		config = map[string]any{
