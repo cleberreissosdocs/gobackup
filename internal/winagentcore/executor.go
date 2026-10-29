@@ -11,9 +11,11 @@ package winagentcore
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/cleber/gobackup/internal/core"
 	"github.com/cleber/gobackup/internal/poller"
 )
 
@@ -84,6 +86,27 @@ func payloadInt(payload map[string]any, key string, def int) int {
 	return def
 }
 
+// payloadStrings reads a JSON array of strings out of a command payload
+// (it arrives as []any after json.Unmarshal, never []string). Also accepts
+// a single newline-separated string, so an older Central that still sends
+// the raw textarea text keeps working.
+func payloadStrings(payload map[string]any, key string) []string {
+	switch v := payload[key].(type) {
+	case []any:
+		var out []string
+		for _, item := range v {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+		return out
+	case string:
+		return core.ParseExcludePatterns(v)
+	default:
+		return nil
+	}
+}
+
 // Execute dispatches one queued command, returning the result to piggyback
 // on the next heartbeat — the exact same "acked"/"failed" shape the Linux
 // executor returns.
@@ -103,6 +126,7 @@ func jobFromFilePayload(payload map[string]any) Job {
 		Dest:             NormalizeDestPath(payloadStr(payload, "destination_path"), payloadStr(payload, "destination_type")),
 		DestType:         defaultStr(payloadStr(payload, "destination_type"), "local"),
 		DeleteExtraneous: payloadBool(payload, "delete_extraneous", false),
+		Excludes:         payloadStrings(payload, "excludes"),
 		SSHHost:          payloadStr(payload, "ssh_host"),
 		SSHPort:          payloadInt(payload, "ssh_port", 22),
 		SSHUser:          payloadStr(payload, "ssh_user"),
@@ -149,7 +173,8 @@ func NormalizeDestPath(path, destType string) string {
 func fileJobResult(j Job) map[string]any {
 	return map[string]any{
 		"kind": "files", "name": j.Name, "source_path": j.Source, "destination_path": j.Dest,
-		"backup_type": "full", "link_dest": "", "delete_extraneous": j.DeleteExtraneous, "destination_type": j.DestType,
+		"backup_type": "full", "link_dest": "", "delete_extraneous": j.DeleteExtraneous,
+		"excludes": j.Excludes, "destination_type": j.DestType,
 		"ssh_host": j.SSHHost, "ssh_port": j.SSHPort, "ssh_user": j.SSHUser, "ssh_key_path": j.SSHKey,
 		"cron": j.Cron, "enabled": j.Enabled,
 	}
@@ -383,9 +408,9 @@ func (e *Executor) runFileJob(j Job) {
 	var result MirrorResult
 	var err error
 	if j.DestType == "ssh" {
-		result, err = MirrorSSH(ctx, j.Source, j.SSHHost, j.SSHPort, j.SSHUser, j.SSHKey, j.Dest, j.DeleteExtraneous, progress, waitIfPaused)
+		result, err = MirrorSSH(ctx, j.Source, j.SSHHost, j.SSHPort, j.SSHUser, j.SSHKey, j.Dest, j.DeleteExtraneous, j.Excludes, progress, waitIfPaused)
 	} else {
-		result, err = Mirror(ctx, j.Source, j.Dest, j.DeleteExtraneous, progress, waitIfPaused)
+		result, err = Mirror(ctx, j.Source, j.Dest, j.DeleteExtraneous, j.Excludes, progress, waitIfPaused)
 	}
 
 	if err != nil {

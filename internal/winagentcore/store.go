@@ -33,8 +33,9 @@ type Job struct {
 	Enabled bool   `json:"enabled"`
 
 	// --- files fields ---
-	Source           string `json:"source_path,omitempty"`
-	DeleteExtraneous bool   `json:"delete_extraneous,omitempty"`
+	Source           string   `json:"source_path,omitempty"`
+	DeleteExtraneous bool     `json:"delete_extraneous,omitempty"`
+	Excludes         []string `json:"excludes,omitempty"`
 
 	// --- database fields ---
 	Engine        string `json:"engine,omitempty"`

@@ -16,6 +16,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/cleber/gobackup/internal/agentweb"
@@ -92,7 +93,12 @@ func cmdRun(args []string) {
 	sshUser := fs.String("ssh-user", "", "ssh destination user (dest-type=ssh)")
 	sshKey := fs.String("ssh-key", "", "ssh private key path (dest-type=ssh)")
 	deleteExtraneous := fs.Bool("delete-extraneous", true, "rsync --delete: remove from dest what no longer exists at source")
+	excludes := fs.String("exclude", "", "paths never to copy: rsync --exclude patterns, comma-separated (e.g. \"*.tmp,cache/,/logs\")")
 	fs.Parse(args)
+
+	// Comma-separated on the CLI (newline-separated everywhere else --
+	// a shell argument can't carry newlines comfortably).
+	excludeList := core.ParseExcludePatterns(strings.ReplaceAll(*excludes, ",", "\n"))
 
 	if *connString == "" || *name == "" || *source == "" || *dest == "" {
 		fatal("missing required flags: -db -name -source -dest")
@@ -120,7 +126,7 @@ func cmdRun(args []string) {
 	}
 
 	jobID, err := store.CreateFileJob(ctx, tenantID, agentID, *name, *source, *dest, bt,
-		*destType, *linkDest, *deleteExtraneous, *sshHost, *sshPort, *sshUser, *sshKey, *cron)
+		*destType, *linkDest, *deleteExtraneous, excludeList, *sshHost, *sshPort, *sshUser, *sshKey, *cron)
 	if err != nil {
 		fatal(err.Error())
 	}
@@ -136,7 +142,7 @@ func cmdRun(args []string) {
 	if err != nil {
 		fatal(err.Error())
 	}
-	res, runErr := backup.Run(ctx, *source, destination, bt, *linkDest, *deleteExtraneous, nil, nil)
+	res, runErr := backup.Run(ctx, *source, destination, bt, *linkDest, *deleteExtraneous, excludeList, nil, nil)
 	elapsed := time.Since(start)
 
 	if runErr != nil {

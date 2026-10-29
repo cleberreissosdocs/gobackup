@@ -26,14 +26,18 @@ type FileJobRequest struct {
 	Dest             string
 	BackupType       string // full|incremental|differential
 	LinkDest         string
-	DeleteExtraneous bool   // rsync --delete: mirror deletions from source to dest
-	DestType         string // local|nas|ssh
-	SSHHost          string
-	SSHPort          int
-	SSHUser          string
-	SSHKey           string
-	Cron             string // 5-field cron expression, or "" for manual-only
-	Enabled          bool
+	DeleteExtraneous bool // rsync --delete: mirror deletions from source to dest
+	// Excludes are rsync --exclude patterns (one per entry) for paths that
+	// should never be copied — caches, temp dirs, a subtree already
+	// covered by another job. See core.ExcludeMatcher for the syntax.
+	Excludes []string
+	DestType string // local|nas|ssh
+	SSHHost  string
+	SSHPort  int
+	SSHUser  string
+	SSHKey   string
+	Cron     string // 5-field cron expression, or "" for manual-only
+	Enabled  bool
 }
 
 // DBJobRequest describes a database backup job to create or edit. The

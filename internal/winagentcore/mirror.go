@@ -23,6 +23,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/cleber/gobackup/internal/core"
 )
 
 // copyBufSize: larger than the default io.Copy buffer (32KB) to cut down
@@ -45,7 +47,15 @@ type MirrorResult struct {
 // already identical by size+modtime (the same quick-check heuristic rsync
 // uses by default), and — if deleteExtraneous — removes anything under dst
 // that no longer exists under src, so dst ends up an exact mirror of src.
-func Mirror(ctx context.Context, src, dst string, deleteExtraneous bool, onProgress MirrorProgress, waitIfPaused func(context.Context)) (MirrorResult, error) {
+//
+// excludes are the job's exclusion patterns (core.ExcludeMatcher syntax,
+// identical to what the Linux agent hands to `rsync --exclude`): matching
+// paths are never copied, an excluded DIRECTORY is not even descended
+// into, and — matching rsync's default, which protects excluded paths
+// from --delete — anything excluded is also left untouched at the
+// destination rather than being pruned as "no longer in the source".
+func Mirror(ctx context.Context, src, dst string, deleteExtraneous bool, excludes []string, onProgress MirrorProgress, waitIfPaused func(context.Context)) (MirrorResult, error) {
+	matcher := core.NewExcludeMatcher(excludes)
 	src = filepath.Clean(src)
 	dst = filepath.Clean(dst)
 
@@ -79,6 +89,14 @@ func Mirror(ctx context.Context, src, dst string, deleteExtraneous bool, onProgr
 			return relErr
 		}
 		if rel == "." {
+			return nil
+		}
+		if matcher.Match(rel, d.IsDir()) {
+			if d.IsDir() {
+				// Don't descend — not walking an excluded tree at all is
+				// the whole point (it may hold millions of files).
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		seenRel[rel] = true
@@ -176,7 +194,7 @@ func Mirror(ctx context.Context, src, dst string, deleteExtraneous bool, onProgr
 
 	deleted := 0
 	if deleteExtraneous {
-		deleted, err = pruneExtraneous(dst, src, seenRel)
+		deleted, err = pruneExtraneous(dst, src, seenRel, matcher)
 		if err != nil {
 			return MirrorResult{FilesCopied: int(copiedCount), BytesCopied: copiedBytes, FilesSkipped: skipped}, fmt.Errorf("prune extraneous: %w", err)
 		}
@@ -229,8 +247,13 @@ func copyOneFile(srcPath, dstPath string) (int64, error) {
 }
 
 // pruneExtraneous removes anything under dst whose source-relative path is
-// not in seenRel — the "--delete" mirror behavior.
-func pruneExtraneous(dst, src string, seenRel map[string]bool) (int, error) {
+// not in seenRel — the "--delete" mirror behavior. Excluded paths are
+// never pruned: they are absent from seenRel only because they were
+// deliberately skipped, not because they vanished from the source, and
+// deleting them would make adding an exclusion silently destroy the
+// previously-copied data at the destination (rsync protects them the same
+// way unless you explicitly ask for --delete-excluded).
+func pruneExtraneous(dst, src string, seenRel map[string]bool, matcher *core.ExcludeMatcher) (int, error) {
 	deleted := 0
 	var toRemove []string
 	err := filepath.WalkDir(dst, func(path string, d fs.DirEntry, err error) error {
@@ -240,6 +263,12 @@ func pruneExtraneous(dst, src string, seenRel map[string]bool) (int, error) {
 		rel, relErr := filepath.Rel(dst, path)
 		if relErr != nil || rel == "." {
 			return relErr
+		}
+		if matcher.Match(rel, d.IsDir()) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if !seenRel[rel] {
 			toRemove = append(toRemove, path)

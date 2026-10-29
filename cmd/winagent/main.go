@@ -12,8 +12,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/cleber/gobackup/internal/core"
 	"github.com/cleber/gobackup/internal/poller"
 	"github.com/cleber/gobackup/internal/winagentcore"
 )
@@ -207,14 +209,19 @@ func cmdLocalCreateJob(args []string) {
 	sshPort := fs.Int("ssh-port", 22, "SSH destination port")
 	sshUser := fs.String("ssh-user", "", "SSH destination user")
 	sshKey := fs.String("ssh-key", "", "path to SSH private key")
+	excludes := fs.String("exclude", "", "paths never to copy: rsync --exclude patterns, comma-separated (e.g. \"*.tmp,cache/,/logs\")")
 	fs.Parse(args)
 	if *name == "" || *source == "" || *dest == "" {
 		fatal("-name, -source e -dest são obrigatórios")
 	}
+	// Comma-separated on the CLI (newline-separated everywhere else --
+	// a shell argument can't carry newlines comfortably).
+	excludeList := core.ParseExcludePatterns(strings.ReplaceAll(*excludes, ",", "\n"))
 	store := winagentcore.NewJobStore()
 	j, err := store.Create(winagentcore.Job{
 		Kind: "files", Name: *name, Source: winagentcore.NormalizeWindowsPath(*source), Dest: winagentcore.NormalizeDestPath(*dest, *destType), DestType: *destType, DeleteExtraneous: *deleteExtraneous,
-		SSHHost: *sshHost, SSHPort: *sshPort, SSHUser: *sshUser, SSHKey: *sshKey,
+		Excludes: excludeList,
+		SSHHost:  *sshHost, SSHPort: *sshPort, SSHUser: *sshUser, SSHKey: *sshKey,
 	})
 	if err != nil {
 		fatal(err.Error())
@@ -317,9 +324,9 @@ func cmdLocalRunJob(args []string) {
 	}
 	var result winagentcore.MirrorResult
 	if target.DestType == "ssh" {
-		result, err = winagentcore.MirrorSSH(context.Background(), target.Source, target.SSHHost, target.SSHPort, target.SSHUser, target.SSHKey, target.Dest, target.DeleteExtraneous, progress, nil)
+		result, err = winagentcore.MirrorSSH(context.Background(), target.Source, target.SSHHost, target.SSHPort, target.SSHUser, target.SSHKey, target.Dest, target.DeleteExtraneous, target.Excludes, progress, nil)
 	} else {
-		result, err = winagentcore.Mirror(context.Background(), target.Source, target.Dest, target.DeleteExtraneous, progress, nil)
+		result, err = winagentcore.Mirror(context.Background(), target.Source, target.Dest, target.DeleteExtraneous, target.Excludes, progress, nil)
 	}
 	fmt.Println()
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/cleber/gobackup/internal/core"
 	"github.com/cleber/gobackup/internal/webauth"
 	"github.com/cleber/gobackup/internal/webui/assets"
 )
@@ -224,12 +225,15 @@ func fileJobFromForm(r *http.Request) FileJobRequest {
 		// previous hardcoded behavior) when the box isn't present at all
 		// (e.g. a stale client), but respect an explicit uncheck.
 		DeleteExtraneous: r.FormValue("delete_extraneous_present") == "" || r.FormValue("delete_extraneous") == "on",
-		DestType:         r.FormValue("dest_type"),
-		SSHHost:          r.FormValue("ssh_host"),
-		SSHUser:          r.FormValue("ssh_user"),
-		SSHKey:           r.FormValue("ssh_key"),
-		Cron:             r.FormValue("cron"),
-		Enabled:          r.FormValue("enabled") == "on",
+		// One exclusion pattern per line in the textarea; blank lines and
+		// "#" comments are dropped so a user can annotate the list.
+		Excludes: core.ParseExcludePatterns(r.FormValue("excludes")),
+		DestType: r.FormValue("dest_type"),
+		SSHHost:  r.FormValue("ssh_host"),
+		SSHUser:  r.FormValue("ssh_user"),
+		SSHKey:   r.FormValue("ssh_key"),
+		Cron:     r.FormValue("cron"),
+		Enabled:  r.FormValue("enabled") == "on",
 	}
 	req.SSHPort, _ = strconv.Atoi(r.FormValue("ssh_port"))
 	return req

@@ -5,6 +5,8 @@ import (
 	"html/template"
 	"strconv"
 	"strings"
+
+	"github.com/cleber/gobackup/internal/core"
 )
 
 var cronWeekdayNames = []string{"Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"}
@@ -70,6 +72,10 @@ func HumanizeCron(cron string) string {
 
 var funcs = template.FuncMap{
 	"humanizeCron": humanizeCron,
+	// joinExcludes renders a job's exclusion patterns back into the
+	// one-per-line form the textarea expects (the inverse of the
+	// core.ParseExcludePatterns the form handler applies on submit).
+	"joinExcludes": core.JoinExcludePatterns,
 	"fmtTime": func(t interface{}) string {
 		type timeLike interface{ Format(string) string }
 		if tl, ok := t.(timeLike); ok {
@@ -603,6 +609,16 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
     </div>
   </div>
   <div><label><input type="hidden" name="delete_extraneous_present" value="1"><input type="checkbox" name="delete_extraneous" onchange="gbConfirmDeleteExtraneous(this)"> Apagar no destino o que não existe mais na origem (mirror exato, rsync --delete)</label></div>
+  <div>Exclusões (opcional) — não copiar estes arquivos/pastas:
+    <textarea name="excludes" rows="4" placeholder="Um padrão por linha. Exemplos:&#10;*.tmp&#10;cache/&#10;/logs&#10;**/node_modules" style="width:100%; font-family:monospace;"></textarea>
+    <small style="display:block; color:#666; margin-top:0.2rem;">
+      Um padrão por linha. <code>*.tmp</code> = qualquer arquivo .tmp, em qualquer pasta ·
+      <code>cache/</code> = só pastas chamadas cache (e todo o conteúdo delas) ·
+      <code>/logs</code> = apenas na raiz da origem ·
+      <code>logs/*.gz</code> = .gz dentro de qualquer pasta logs.
+      Linhas começando com <code>#</code> são comentários.
+    </small>
+  </div>
   <div>Tipo de destino:
     <select name="dest_type" class="gb-dest-type" onchange="gbToggleSSHFields(this)">
       <option value="local">Local</option>
@@ -780,6 +796,16 @@ var editFileTmpl = template.Must(template.New("edit-file").Funcs(funcs).Parse(`
     </div>
   </div>
   <div><label><input type="hidden" name="delete_extraneous_present" value="1"><input type="checkbox" name="delete_extraneous" onchange="gbConfirmDeleteExtraneous(this)" {{if .Job.DeleteExtraneous}}checked{{end}}> Apagar no destino o que não existe mais na origem (mirror exato, rsync --delete)</label></div>
+  <div>Exclusões (opcional) — não copiar estes arquivos/pastas:
+    <textarea name="excludes" rows="4" placeholder="Um padrão por linha. Exemplos:&#10;*.tmp&#10;cache/&#10;/logs&#10;**/node_modules" style="width:100%; font-family:monospace;">{{joinExcludes .Job.Excludes}}</textarea>
+    <small style="display:block; color:#666; margin-top:0.2rem;">
+      Um padrão por linha. <code>*.tmp</code> = qualquer arquivo .tmp, em qualquer pasta ·
+      <code>cache/</code> = só pastas chamadas cache (e todo o conteúdo delas) ·
+      <code>/logs</code> = apenas na raiz da origem ·
+      <code>logs/*.gz</code> = .gz dentro de qualquer pasta logs.
+      Linhas começando com <code>#</code> são comentários.
+    </small>
+  </div>
   <div>Tipo de destino:
     <select name="dest_type" class="gb-dest-type" onchange="gbToggleSSHFields(this)">
       <option value="local" {{if eq .Job.DestType "local"}}selected{{end}}>Local</option>

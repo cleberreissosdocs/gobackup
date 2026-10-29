@@ -19,6 +19,8 @@ import (
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+
+	"github.com/cleber/gobackup/internal/core"
 )
 
 // sshConnect opens an SSH+SFTP session authenticated with a private key
@@ -107,7 +109,8 @@ func UploadFile(host string, port int, user, keyPath, localPath, remoteDir strin
 // the local source tree and uploads anything missing/changed on the remote
 // side (size+mtime quick-check), optionally deleting remote files that no
 // longer exist locally.
-func MirrorSSH(ctx context.Context, src, host string, port int, user, keyPath, remoteDest string, deleteExtraneous bool, onProgress MirrorProgress, waitIfPaused func(context.Context)) (MirrorResult, error) {
+func MirrorSSH(ctx context.Context, src, host string, port int, user, keyPath, remoteDest string, deleteExtraneous bool, excludes []string, onProgress MirrorProgress, waitIfPaused func(context.Context)) (MirrorResult, error) {
+	matcher := core.NewExcludeMatcher(excludes)
 	client, sc, err := sshConnect(host, port, user, keyPath)
 	if err != nil {
 		return MirrorResult{}, err
@@ -142,6 +145,12 @@ func MirrorSSH(ctx context.Context, src, host string, port int, user, keyPath, r
 			return nil
 		}
 		relSlash := filepath.ToSlash(rel)
+		if matcher.Match(relSlash, d.IsDir()) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		seenRel[relSlash] = true
 		remotePath := path.Join(remoteDest, relSlash)
 		if d.IsDir() {
@@ -200,7 +209,7 @@ func MirrorSSH(ctx context.Context, src, host string, port int, user, keyPath, r
 
 	deleted := 0
 	if deleteExtraneous {
-		deleted, err = pruneExtraneousSSH(sc, remoteDest, seenRel)
+		deleted, err = pruneExtraneousSSH(sc, remoteDest, seenRel, matcher)
 		if err != nil {
 			return MirrorResult{FilesCopied: copiedCount, BytesCopied: copiedBytes, FilesSkipped: skipped}, fmt.Errorf("remover excedente remoto: %w", err)
 		}
@@ -241,7 +250,10 @@ func uploadOne(sc *sftp.Client, localPath, remotePath string) (int64, error) {
 	return n, nil
 }
 
-func pruneExtraneousSSH(sc *sftp.Client, remoteDest string, seenRel map[string]bool) (int, error) {
+// Excluded paths are never pruned remotely — see pruneExtraneous in
+// mirror.go for why (adding an exclusion must not delete what a previous
+// run already uploaded).
+func pruneExtraneousSSH(sc *sftp.Client, remoteDest string, seenRel map[string]bool, matcher *core.ExcludeMatcher) (int, error) {
 	deleted := 0
 	walker := sc.Walk(remoteDest)
 	var toRemove []string
@@ -254,6 +266,12 @@ func pruneExtraneousSSH(sc *sftp.Client, remoteDest string, seenRel map[string]b
 			continue
 		}
 		rel := strings.TrimPrefix(strings.TrimPrefix(p, remoteDest), "/")
+		if matcher.Match(rel, walker.Stat().IsDir()) {
+			if walker.Stat().IsDir() {
+				walker.SkipDir()
+			}
+			continue
+		}
 		if !seenRel[rel] {
 			toRemove = append(toRemove, p)
 			if walker.Stat().IsDir() {

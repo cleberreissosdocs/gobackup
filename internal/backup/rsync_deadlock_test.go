@@ -51,7 +51,7 @@ exit 0
 	var runErr error
 	go func() {
 		defer close(done)
-		_, runErr = Run(ctx, t.TempDir(), Local(t.TempDir()), "full", "", false,
+		_, runErr = Run(ctx, t.TempDir(), Local(t.TempDir()), "full", "", false, nil,
 			func(percent int, line string) { progressCalls++ }, nil)
 	}()
 

@@ -201,13 +201,16 @@ func humanizeBytes(n int64) string {
 // whether files that exist at the destination but no longer exist at the
 // source are removed (rsync's --delete) — i.e. whether the destination
 // stays an EXACT mirror of the source, or just accumulates/overwrites
-// without ever pruning. Note: for an ssh destination, --link-dest is
+// without ever pruning. excludes is a list of rsync --exclude patterns
+// (see core.ExcludeMatcher for the syntax, which the Windows agent
+// reimplements to behave identically); nil/empty excludes nothing. Note:
+// for an ssh destination, --link-dest is
 // resolved on the REMOTE host, so it must be a path on that host, not on
 // the agent running rsync. onProgress may be nil. onStart, if non-nil, is
 // called with the rsync *os.Process right after it starts — the caller
 // uses this to support OS-level Pause/Resume (SIGSTOP/SIGCONT) on top of
 // ctx cancellation for outright Cancel.
-func Run(ctx context.Context, sourcePath string, dest Destination, backupType core.BackupType, linkDestPath string, deleteExtraneous bool, onProgress ProgressFunc, onStart func(*os.Process)) (Result, error) {
+func Run(ctx context.Context, sourcePath string, dest Destination, backupType core.BackupType, linkDestPath string, deleteExtraneous bool, excludes []string, onProgress ProgressFunc, onStart func(*os.Process)) (Result, error) {
 	target, extraArgs, err := dest.rsyncArgs()
 	if err != nil {
 		return Result{}, fmt.Errorf("invalid destination: %w", err)
@@ -220,6 +223,16 @@ func Run(ctx context.Context, sourcePath string, dest Destination, backupType co
 	}
 	if deleteExtraneous {
 		args = append(args, "--delete") // mirror deletions too
+	}
+	// --exclude must come BEFORE --delete takes effect on the destination
+	// side in the sense that matters here: rsync never deletes an excluded
+	// path at the destination (it is simply not part of the transfer), so
+	// an exclusion added later leaves whatever was already copied in place
+	// rather than wiping it.
+	for _, p := range excludes {
+		if p = strings.TrimSpace(p); p != "" {
+			args = append(args, "--exclude="+p)
+		}
 	}
 	args = append(args, extraArgs...)
 	if backupType != core.BackupFull && linkDestPath != "" {

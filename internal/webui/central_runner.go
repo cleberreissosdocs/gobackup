@@ -122,6 +122,7 @@ func fileJobPayload(req FileJobRequest) map[string]any {
 		"backup_type":       req.BackupType,
 		"link_dest":         req.LinkDest,
 		"delete_extraneous": req.DeleteExtraneous,
+		"excludes":          req.Excludes,
 		"destination_type":  req.DestType,
 		"ssh_host":          req.SSHHost,
 		"ssh_port":          req.SSHPort,
@@ -195,6 +196,19 @@ func strField(m map[string]any, key string) string {
 	return v
 }
 
+// strListField reads a JSON array of strings back out of a command
+// result (it arrives as []any after json.Unmarshal, never []string).
+func strListField(m map[string]any, key string) []string {
+	raw, _ := m[key].([]any)
+	var out []string
+	for _, v := range raw {
+		if s, ok := v.(string); ok && s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func intField(m map[string]any, key string) int {
 	if f, ok := m[key].(float64); ok {
 		return int(f)
@@ -221,7 +235,8 @@ func (r *CentralRunner) GetFileJob(ctx context.Context, jobID string) (FileJobRe
 	}
 	return FileJobRequest{
 		Name: strField(m, "name"), Source: strField(m, "source_path"), Dest: strField(m, "destination_path"),
-		BackupType: strField(m, "backup_type"), LinkDest: strField(m, "link_dest"), DeleteExtraneous: boolField(m, "delete_extraneous"), DestType: strField(m, "destination_type"),
+		BackupType: strField(m, "backup_type"), LinkDest: strField(m, "link_dest"), DeleteExtraneous: boolField(m, "delete_extraneous"),
+		Excludes: strListField(m, "excludes"), DestType: strField(m, "destination_type"),
 		SSHHost: strField(m, "ssh_host"), SSHPort: intField(m, "ssh_port"), SSHUser: strField(m, "ssh_user"), SSHKey: strField(m, "ssh_key_path"),
 		Cron: strField(m, "cron"), Enabled: boolField(m, "enabled"),
 	}, nil

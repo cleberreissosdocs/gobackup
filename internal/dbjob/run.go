@@ -85,7 +85,7 @@ func Run(ctx context.Context, req Request) (Result, error) {
 		// contains the ONE dump file just created, so mirroring it with
 		// --delete would wipe out every other backup already sitting in
 		// the remote destination directory on every single run.
-		transferRes, err := backup.Run(ctx, tmpDir, destination, core.BackupFull, "", false, nil, nil)
+		transferRes, err := backup.Run(ctx, tmpDir, destination, core.BackupFull, "", false, nil, nil, nil)
 		if err != nil {
 			return Result{}, fmt.Errorf("push dump over ssh: %w", err)
 		}

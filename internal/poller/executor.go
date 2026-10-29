@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -104,6 +105,27 @@ func payloadBool(payload map[string]any, key string, def bool) bool {
 	return def
 }
 
+// payloadStrings reads a JSON array of strings out of a command payload
+// (it arrives as []any after json.Unmarshal, never []string). Also accepts
+// a single newline-separated string, so an older Central that still sends
+// the raw textarea text keeps working.
+func payloadStrings(payload map[string]any, key string) []string {
+	switch v := payload[key].(type) {
+	case []any:
+		var out []string
+		for _, item := range v {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+		return out
+	case string:
+		return core.ParseExcludePatterns(v)
+	default:
+		return nil
+	}
+}
+
 // createJob persists a new job definition (files or database) WITHOUT
 // running it — the operator runs it later (now, repeatedly, or on the
 // job's own schedule) via run_job.
@@ -133,8 +155,9 @@ func (e *Executor) createJob(ctx context.Context, payload map[string]any) (map[s
 			backupType = string(core.BackupFull)
 		}
 		deleteExtraneous := payloadBool(payload, "delete_extraneous", true)
+		excludes := payloadStrings(payload, "excludes")
 		jobID, err := e.Store.CreateFileJob(ctx, e.TenantID, e.AgentID, name, source, dest,
-			core.BackupType(backupType), destType, linkDest, deleteExtraneous, sshHost, sshPort, sshUser, sshKeyPath, cron)
+			core.BackupType(backupType), destType, linkDest, deleteExtraneous, excludes, sshHost, sshPort, sshUser, sshKeyPath, cron)
 		if err != nil {
 			return nil, err
 		}
@@ -213,7 +236,8 @@ func (e *Executor) getJob(ctx context.Context, payload map[string]any) (map[stri
 		}
 		return map[string]any{
 			"kind": "files", "name": d.Name, "source_path": d.Source, "destination_path": d.Dest,
-			"backup_type": d.BackupType, "link_dest": d.LinkDest, "delete_extraneous": d.DeleteExtraneous, "destination_type": d.DestType,
+			"backup_type": d.BackupType, "link_dest": d.LinkDest, "delete_extraneous": d.DeleteExtraneous,
+			"excludes": d.Excludes, "destination_type": d.DestType,
 			"ssh_host": d.SSHHost, "ssh_port": d.SSHPort, "ssh_user": d.SSHUser, "ssh_key_path": d.SSHKey,
 			"cron": d.Cron, "enabled": d.Enabled,
 		}, nil
@@ -263,8 +287,9 @@ func (e *Executor) updateJob(ctx context.Context, payload map[string]any) (map[s
 		backupType, _ := payload["backup_type"].(string)
 		linkDest, _ := payload["link_dest"].(string)
 		deleteExtraneous := payloadBool(payload, "delete_extraneous", true)
+		excludes := payloadStrings(payload, "excludes")
 		if err := e.Store.UpdateFileJobByID(ctx, jobID, name, source, dest, core.BackupType(backupType),
-			destType, linkDest, deleteExtraneous, sshHost, sshPort, sshUser, sshKeyPath, cron, enabled); err != nil {
+			destType, linkDest, deleteExtraneous, excludes, sshHost, sshPort, sshUser, sshKeyPath, cron, enabled); err != nil {
 			return nil, err
 		}
 		return map[string]any{"job_id": jobIDStr}, nil
