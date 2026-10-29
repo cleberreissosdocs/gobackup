@@ -2,9 +2,13 @@ package core
 
 import "testing"
 
+// Comments survive parsing (so they survive an edit-and-save round trip)
+// and are skipped only where patterns are applied — see
+// TestExcludeMatcherEmptyAndBadPatterns for the matcher side, and
+// internal/backup's rsync args for the Linux agent side.
 func TestParseExcludePatterns(t *testing.T) {
 	got := ParseExcludePatterns("*.tmp\r\n\n  cache/  \n# comentário\n/logs\n")
-	want := []string{"*.tmp", "cache/", "/logs"}
+	want := []string{"*.tmp", "cache/", "# comentário", "/logs"}
 	if len(got) != len(want) {
 		t.Fatalf("got %q, want %q", got, want)
 	}

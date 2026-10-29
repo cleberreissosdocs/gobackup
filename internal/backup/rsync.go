@@ -230,7 +230,10 @@ func Run(ctx context.Context, sourcePath string, dest Destination, backupType co
 	// an exclusion added later leaves whatever was already copied in place
 	// rather than wiping it.
 	for _, p := range excludes {
-		if p = strings.TrimSpace(p); p != "" {
+		// "#" lines are the user's own notes (see ParseExcludePatterns),
+		// not patterns — passing one through would tell rsync to skip a
+		// file literally named "# comentário".
+		if p = strings.TrimSpace(p); p != "" && !strings.HasPrefix(p, "#") {
 			args = append(args, "--exclude="+p)
 		}
 	}

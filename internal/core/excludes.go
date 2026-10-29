@@ -30,14 +30,21 @@ import (
 // its entire subtree.
 
 // ParseExcludePatterns turns the raw contents of the job form's exclusions
-// textarea into a clean pattern list: one per line, trimmed, with blank
-// lines and "#" comments dropped. Accepts both "\n" and "\r\n" (a browser
-// textarea submits CRLF).
+// textarea into a pattern list: one per line, trimmed, with blank lines
+// dropped. Accepts both "\n" and "\r\n" (a browser textarea submits CRLF).
+//
+// "#" comment lines are KEPT here on purpose, and skipped where the
+// patterns are actually APPLIED instead (NewExcludeMatcher, and the
+// --exclude flags in internal/backup). Dropping them at parse time would
+// mean a user's notes — typically the reason a path is excluded and when
+// it can be removed — silently disappeared the moment anyone opened the
+// job's edit form and saved it, since that form is prefilled from the
+// parsed list.
 func ParseExcludePatterns(raw string) []string {
 	var out []string
 	for _, line := range strings.Split(raw, "\n") {
 		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
-		if line == "" || strings.HasPrefix(line, "#") {
+		if line == "" {
 			continue
 		}
 		out = append(out, line)

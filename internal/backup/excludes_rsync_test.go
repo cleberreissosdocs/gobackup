@@ -66,6 +66,34 @@ func TestRunExcludesRealRsync(t *testing.T) {
 	}
 }
 
+// TestRunIgnoresCommentLines proves a "#" note in the exclusions field is
+// treated as a comment by the real rsync invocation, not as a pattern
+// matching a file literally named "# ...".
+func TestRunIgnoresCommentLines(t *testing.T) {
+	if _, err := os.Stat("/usr/bin/rsync"); err != nil {
+		t.Skip("rsync not installed")
+	}
+
+	src := t.TempDir()
+	dst := t.TempDir()
+	for _, name := range []string{"keep.txt", "# nota.txt"} {
+		if err := os.WriteFile(filepath.Join(src, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := Run(context.Background(), src, Local(dst), "full", "", false,
+		[]string{"# isto é um comentário, não um padrão", "*.tmp"}, nil, nil); err != nil {
+		t.Fatalf("rsync failed: %v", err)
+	}
+
+	for _, name := range []string{"keep.txt", "# nota.txt"} {
+		if _, err := os.Stat(filepath.Join(dst, name)); err != nil {
+			t.Errorf("a comment line must not exclude anything, %q missing: %v", name, err)
+		}
+	}
+}
+
 // TestRunExcludesDoNotDeleteAtDestination pins rsync's default behavior
 // that GoBackup relies on: adding an exclusion must not cause --delete to
 // wipe out data a previous run already copied.
