@@ -733,7 +733,7 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
     </div>
   </div>
   <div>Reter backups por (dias): <input type="number" name="retention_days" min="0" value="0"> <small>backups desta tarefa com mais de X dias são apagados automaticamente após cada execução — 0 = nunca apagar</small></div>
-  <div>Agendamento <small>(se o banco exigir senha, um backup agendado vai falhar porque a senha nunca fica salva — agende só sem autenticação, ou rode manualmente)</small>:
+  <div>Agendamento <small>(a senha informada acima fica salva, então o backup agendado autentica sozinho)</small>:
     {{scheduleBuilder "db" "" .AgentTZ}}
   </div>
   <button type="submit">Criar</button>

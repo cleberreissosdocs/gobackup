@@ -77,6 +77,24 @@ func TestOffsetComMeiaHoraEZero(t *testing.T) {
 	}
 }
 
+// A senha de banco passou a ser guardada e o agendador a usa sozinho
+// (provado em agente real). O formulário não pode continuar dizendo o
+// contrário: um rótulo obsoleto é uma mentira, não apenas uma falta.
+func TestFormularioNaoDesencorajaAgendarBancoComSenha(t *testing.T) {
+	var sb strings.Builder
+	if err := homeTmpl.Execute(&sb, map[string]any{
+		"Name": "agente", "Base": "", "CSRF": "t", "Jobs": nil,
+		"Platform": "linux", "AgentTZ": TimezoneLabel("America/Sao_Paulo", -180, time.Now()),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, obsoleto := range []string{"a senha nunca fica salva", "agende só sem autenticação"} {
+		if strings.Contains(sb.String(), obsoleto) {
+			t.Errorf("texto obsoleto ainda no formulário: %q", obsoleto)
+		}
+	}
+}
+
 // Uma página que esqueça de passar AgentTZ não pode derrubar a tela inteira
 // de tarefas por causa de um rótulo: degrada para "fuso desconhecido".
 func TestPaginaSemAgentTZAindaRenderiza(t *testing.T) {
