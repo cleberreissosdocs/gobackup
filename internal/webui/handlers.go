@@ -24,6 +24,23 @@ type Site struct {
 	// BasePath is prefixed to every link rendered (e.g. "/ui/agents/<id>"
 	// for central, "" for the agent's own single-site UI).
 	BasePath func(r *http.Request) string
+	// GetPlatform reports the OS of the agent this request administers
+	// ("windows", "linux", or "" when not yet known), so the job form can
+	// offer platform-specific options only where they actually work —
+	// network/UNC folders with SMB credentials exist on the Windows agent
+	// only. Central looks this up from the agent's reported heartbeat; the
+	// agent's own local UI reports its own runtime.GOOS. Optional: a nil
+	// hook means "unknown", and the form then shows such options labelled
+	// rather than hiding them, so a capability is never silently missing.
+	GetPlatform func(r *http.Request) string
+}
+
+// platform resolves the administered agent's OS, or "" when unknown.
+func (s *Site) platform(r *http.Request) string {
+	if s.GetPlatform == nil {
+		return ""
+	}
+	return s.GetPlatform(r)
 }
 
 // Mount registers the shared admin screens under the given prefix pattern.
@@ -134,6 +151,7 @@ func (s *Site) handleHome(w http.ResponseWriter, r *http.Request) {
 		"Activity": activity,
 		"Jobs":     jobs,
 		"CSRF":     s.Auth.CSRFToken(r),
+		"Platform": s.platform(r),
 	})
 }
 
@@ -333,6 +351,7 @@ func (s *Site) handleEditJobForm(w http.ResponseWriter, r *http.Request) {
 	if fileReq, ferr := runner.GetFileJob(ctx, jobID); ferr == nil {
 		s.renderPage(w, r, "Editar tarefa — "+name, editFileTmpl, map[string]any{
 			"Name": name, "Base": s.base(r), "JobID": jobID, "Job": fileReq, "CSRF": s.Auth.CSRFToken(r),
+			"Platform": s.platform(r),
 		})
 		return
 	}

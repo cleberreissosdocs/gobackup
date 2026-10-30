@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"runtime"
 	"time"
 )
 
@@ -129,7 +130,15 @@ type RunningInfo struct {
 // and any results from previously received commands; it returns newly
 // queued commands.
 func (c *Client) Poll(status string, results []CommandResult, jobs []JobInfo, running []RunningInfo) (PollResponse, error) {
-	body, _ := json.Marshal(map[string]any{"status": status, "command_results": results, "jobs": jobs, "running": running})
+	// platform lets Central tell a Windows agent from a Linux one, which
+	// the job form needs in order to offer (or hide) platform-specific
+	// options — network/UNC folders with SMB credentials only exist on
+	// the Windows agent. This package is compiled into BOTH agents, so
+	// runtime.GOOS here is correct for each without per-agent code.
+	body, _ := json.Marshal(map[string]any{
+		"status": status, "command_results": results, "jobs": jobs, "running": running,
+		"platform": runtime.GOOS,
+	})
 	req, err := http.NewRequest(http.MethodPost, c.CentralURL+"/api/v1/agents/poll", bytes.NewReader(body))
 	if err != nil {
 		return PollResponse{}, err

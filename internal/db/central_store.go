@@ -64,15 +64,34 @@ func (s *Store) AuthenticateAgent(ctx context.Context, token string) (uuid.UUID,
 }
 
 // TouchAgentHeartbeat records that an agent just polled in, successfully.
-func (s *Store) TouchAgentHeartbeat(ctx context.Context, agentID uuid.UUID, status string) error {
+// platform is the agent's runtime.GOOS; it is only written when non-empty
+// so a heartbeat from an older agent build (which doesn't report it) never
+// blanks out a value an earlier, newer build already stored.
+func (s *Store) TouchAgentHeartbeat(ctx context.Context, agentID uuid.UUID, status, platform string) error {
 	_, err := s.Pool.Exec(ctx, `
-		UPDATE agents SET status = 'online', last_seen_at = now(), notified_offline_at = NULL WHERE id = $1
-	`, agentID)
+		UPDATE agents
+		SET status = 'online', last_seen_at = now(), notified_offline_at = NULL,
+		    platform = CASE WHEN $2 <> '' THEN $2 ELSE platform END
+		WHERE id = $1
+	`, agentID, platform)
 	_ = status // reserved for future use (idle/running distinction in the dashboard)
 	if err != nil {
 		return fmt.Errorf("heartbeat: %w", err)
 	}
 	return nil
+}
+
+// AgentPlatform returns the OS the agent last reported on its heartbeat
+// ("windows"/"linux"), or "" when the agent has never reported one (an
+// older agent build) or does not exist. Callers must treat "" as
+// "unknown", never as a specific platform.
+func (s *Store) AgentPlatform(ctx context.Context, agentID uuid.UUID) (string, error) {
+	var platform string
+	err := s.Pool.QueryRow(ctx, `SELECT platform FROM agents WHERE id = $1`, agentID).Scan(&platform)
+	if err != nil {
+		return "", fmt.Errorf("agent platform: %w", err)
+	}
+	return platform, nil
 }
 
 // QueuedCommand is a command delivered to the agent in a poll response.

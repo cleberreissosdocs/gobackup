@@ -75,6 +75,19 @@ func (s *Server) routes() {
 		BasePath: func(r *http.Request) string {
 			return "/agents/" + r.PathValue("id")
 		},
+		GetPlatform: func(r *http.Request) string {
+			agentID, err := uuid.Parse(r.PathValue("id"))
+			if err != nil {
+				return ""
+			}
+			// "" on any failure (unknown agent, or an agent still on a
+			// build that doesn't report its platform) — the form then
+			// shows platform-specific options labelled instead of
+			// hiding them, so a real capability is never lost to a
+			// lookup error.
+			platform, _ := s.Store.AgentPlatform(r.Context(), agentID)
+			return platform
+		},
 	}
 	site.Mount(s.Mux, "/agents/{id}")
 }
@@ -145,6 +158,10 @@ type pollRequest struct {
 	CommandResults []commandResultDTO `json:"command_results"`
 	Jobs           []jobInfoDTO       `json:"jobs"`
 	Running        []runningInfoDTO   `json:"running"`
+	// Platform is runtime.GOOS as reported by the agent ("windows"/
+	// "linux"). Empty from an agent older than this field — callers must
+	// treat "" as "unknown", never as "not Windows".
+	Platform string `json:"platform"`
 }
 
 type pollResponse struct {
@@ -168,7 +185,7 @@ func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
 	var req pollRequest
 	_ = json.NewDecoder(r.Body).Decode(&req) // best-effort; body is optional
 
-	if err := s.Store.TouchAgentHeartbeat(ctx, agentID, req.Status); err != nil {
+	if err := s.Store.TouchAgentHeartbeat(ctx, agentID, req.Status, req.Platform); err != nil {
 		log.Println("poll: heartbeat:", err)
 		httpError(w, http.StatusInternalServerError, "internal error")
 		return

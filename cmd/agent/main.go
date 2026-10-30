@@ -16,6 +16,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -466,6 +467,8 @@ func cmdServe(args []string) {
 		GetRunner: func(r *http.Request) (webui.Runner, string, error) {
 			return runner, hostname, nil
 		},
+		// This UI only ever administers the machine it runs on.
+		GetPlatform: func(r *http.Request) string { return runtime.GOOS },
 	}
 
 	mux := http.NewServeMux()
