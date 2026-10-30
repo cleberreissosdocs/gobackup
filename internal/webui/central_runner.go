@@ -223,6 +223,25 @@ func boolField(m map[string]any, key string) bool {
 	return v
 }
 
+// kindMismatch reports whether a get_job result describes a DIFFERENT
+// kind of job than the caller expects.
+//
+// handleEditJobForm picks the edit form by trying GetFileJob first and
+// falling back to GetDBJob, which only works if the wrong kind returns an
+// error. The local runner gets that for free (its queries filter by
+// kind), but the Central's getters used to map whatever get_job returned
+// into the requested struct — so editing a DATABASE job through the
+// Central's remote administration rendered the FILE form, offering source
+// path, exclusions and network-folder fields for a job that has none.
+//
+// An EMPTY kind is accepted rather than rejected: an agent on a build
+// that predates the field would otherwise become uneditable through the
+// Central, and "file first" was already the fallback order.
+func kindMismatch(m map[string]any, want string) bool {
+	k := strField(m, "kind")
+	return k != "" && k != want
+}
+
 func (r *CentralRunner) GetFileJob(ctx context.Context, jobID string) (FileJobRequest, error) {
 	outcome, err := r.enqueueAndWait(ctx, "get_job", map[string]any{"job_id": jobID})
 	if err != nil {
@@ -234,6 +253,9 @@ func (r *CentralRunner) GetFileJob(ctx context.Context, jobID string) (FileJobRe
 	_, m, err := r.lastCommandResult(ctx, "get_job")
 	if err != nil {
 		return FileJobRequest{}, err
+	}
+	if kindMismatch(m, "files") {
+		return FileJobRequest{}, fmt.Errorf("a tarefa %s não é de arquivos", jobID)
 	}
 	return FileJobRequest{
 		Name: strField(m, "name"), Source: strField(m, "source_path"), Dest: strField(m, "destination_path"),
@@ -258,6 +280,9 @@ func (r *CentralRunner) GetDBJob(ctx context.Context, jobID string) (DBJobReques
 	_, m, err := r.lastCommandResult(ctx, "get_job")
 	if err != nil {
 		return DBJobRequest{}, err
+	}
+	if kindMismatch(m, "database") {
+		return DBJobRequest{}, fmt.Errorf("a tarefa %s não é de banco de dados", jobID)
 	}
 	return DBJobRequest{
 		Name: strField(m, "name"), Engine: strField(m, "engine"), Host: strField(m, "host"), Port: intField(m, "port"),

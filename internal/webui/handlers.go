@@ -370,7 +370,13 @@ func (s *Site) handleEditJobForm(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "tarefa não encontrada", http.StatusNotFound)
 }
 
-// handleUpdateJob saves an edited job — tries file first, then database.
+// handleUpdateJob saves an edited job, dispatching on the hidden "kind"
+// field the edit form carries.
+//
+// It trusts that field, which is only safe because handleEditJobForm now
+// renders the form matching the job's real kind: while the Central could
+// still render the FILE form for a DATABASE job, saving it would have
+// posted kind=files and rewritten the job as a file one.
 func (s *Site) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
