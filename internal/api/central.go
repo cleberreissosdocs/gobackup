@@ -960,7 +960,6 @@ tr.gb-row-offline td { color: var(--gb-text-faint); }
     <a href="/agents/{{.AgentID}}/jobs/{{.JobID}}/edit">Editar</a>
     <form method="post" action="/agents/{{.AgentID}}/jobs/{{.JobID}}/run" style="display:inline-flex; gap:0.5rem; align-items:center; margin-left:0.8rem">
       <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-      {{if eq .Kind "database"}}<input type="password" name="password" placeholder="senha (se necessário)">{{end}}
       <button type="submit">Executar</button>
     </form>
     <span style="display:inline-block; width:1.5rem;"></span><span style="border-left:1px solid var(--gb-border); padding-left:1rem;">

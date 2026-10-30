@@ -736,7 +736,6 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
     <a href="{{$.Base}}/jobs/{{.ID}}/edit">Editar</a>
     <form method="post" action="{{$.Base}}/jobs/{{.ID}}/run" style="display:inline-flex; gap:0.5rem; align-items:center; margin-left:0.8rem">
       <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-      {{if eq .Kind "database"}}<input type="password" name="password" placeholder="senha (se necessário)">{{end}}
       {{if eq .Status "running"}}
       <button type="submit" disabled title="Esta tarefa já está em execução">Executar</button>
       {{else}}
