@@ -351,14 +351,35 @@ function gbOpenPicker(inputId, base) {
   // fields, since the share can't be listed anonymously. Derive the
   // sibling fieldset's ids from the input's own id prefix (file_/efile_).
   gbPickerNetUser = ""; gbPickerNetPass = "";
+  var netWarning = "";
   var m = inputId.match(/^(e?file)_(source|dest)$/);
   if (m) {
     var u = document.getElementById(m[1] + '_netuser');
     var p = document.getElementById(m[1] + '_netpass');
     gbPickerNetUser = u ? u.value : "";
     gbPickerNetPass = p ? p.value : "";
+    // The EDIT form prefills "Usuário" from the saved job but always
+    // leaves "Senha" blank (it means "keep the saved one" when the form
+    // itself is submitted) — the agent can never decrypt that saved
+    // secret just to let this picker browse, so sending a non-empty
+    // username with a blank password here would silently try to
+    // authenticate with NO password and come back as a confusing
+    // "senha incorreta" from Windows. Catch it before the request.
+    if (gbPickerNetUser !== "" && gbPickerNetPass === "") {
+      netWarning = "Digite novamente a senha da pasta de rede no campo \"Senha\" acima para poder navegar — ela não é reaproveitada automaticamente da que já está salva.";
+    }
   }
   document.getElementById('gb-picker-modal').style.display = 'flex';
+  if (netWarning) {
+    document.getElementById('gb-picker-path').value = gbPickerTarget.value || '';
+    var list = document.getElementById('gb-picker-list');
+    list.innerHTML = '';
+    var errDiv = document.createElement('div');
+    errDiv.className = 'error';
+    errDiv.textContent = netWarning;
+    list.appendChild(errDiv);
+    return;
+  }
   gbLoadDir(gbPickerTarget.value || '/');
 }
 function gbClosePicker() {
