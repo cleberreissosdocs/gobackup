@@ -375,7 +375,7 @@ func (e *Executor) jobHistory(ctx context.Context, payload map[string]any) (map[
 		list = append(list, execEntry{
 			JobID: row.JobID.String(), JobName: row.JobName, Status: row.Status,
 			StartedAt: row.StartedAt.Format(time.RFC3339), FinishedAt: row.FinishedAt.Format(time.RFC3339),
-			Error: row.ErrorMessage,
+			Error: core.TruncateExecutionError(row.ErrorMessage),
 		})
 	}
 	return map[string]any{"executions": list}, nil

@@ -426,7 +426,7 @@ func (e *Executor) dispatch(cmd poller.QueuedCommand) (map[string]any, error) {
 			list = append(list, execEntry{
 				JobID: h.JobID, JobName: h.JobName, Status: h.Status,
 				StartedAt: h.StartedAt.Format(time.RFC3339), FinishedAt: h.FinishedAt.Format(time.RFC3339),
-				Error: h.Error,
+				Error: core.TruncateExecutionError(h.Error),
 			})
 		}
 		return map[string]any{"executions": list}, nil
