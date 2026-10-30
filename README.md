@@ -145,7 +145,7 @@ Manuais em PDF, passo a passo com capturas de tela:
 ### Agente Windows
 
 Baixe o instalador (Windows 10/11, 64 bits):
-[**gobackup-agent-setup.exe**](https://github.com/cleberreissosdocs/gobackup/releases/download/windows-agent-v7/gobackup-agent-setup.exe)
+[**gobackup-agent-setup.exe**](https://github.com/cleberreissosdocs/gobackup/releases/download/windows-agent-v8/gobackup-agent-setup.exe)
 
 Dê duplo clique, siga o assistente (o Windows pode avisar via SmartScreen
 na primeira execução — clique em "Mais informações" → "Executar assim

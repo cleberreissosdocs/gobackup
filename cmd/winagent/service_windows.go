@@ -43,9 +43,35 @@ func cmdServiceInstall() {
 	}
 	defer m.Disconnect()
 
+	// An upgrade re-runs this with the service ALREADY installed, usually
+	// still pointing at the previous build's path. Merely starting it
+	// again (what this used to do) left the machine running the OLD
+	// binary while the installer reported success — the operator believes
+	// they upgraded and nothing in the UI says otherwise. So: stop it,
+	// repoint it at the executable that was just installed, start it.
 	if existing, err := m.OpenService(serviceName); err == nil {
-		existing.Close()
-		fmt.Println("Serviço já instalado — use 'service-uninstall' primeiro se quiser recriá-lo.")
+		defer existing.Close()
+		wanted := `"` + exePath + `" service-run`
+
+		cfg, err := existing.Config()
+		if err != nil {
+			fatal("ler a configuração do serviço existente: " + err.Error())
+		}
+		if cfg.BinaryPathName == wanted {
+			fmt.Println("Serviço já aponta para esta instalação.")
+		} else {
+			if err := stopService(existing); err != nil {
+				fatal("parar o serviço para atualizá-lo: " + err.Error())
+			}
+			cfg.BinaryPathName = wanted
+			cfg.DisplayName = serviceDisplayName
+			cfg.Description = serviceDescription
+			cfg.StartType = mgr.StartAutomatic
+			if err := existing.UpdateConfig(cfg); err != nil {
+				fatal("apontar o serviço para o novo executável: " + err.Error())
+			}
+			fmt.Println("Serviço atualizado para esta instalação: " + exePath)
+		}
 		cmdServiceStartOnly(m)
 		return
 	}
@@ -72,6 +98,38 @@ func cmdServiceInstall() {
 		return
 	}
 	fmt.Println("Serviço \"" + serviceDisplayName + "\" instalado e iniciado — sobrevive a reboots mesmo sem login.")
+}
+
+// stopService asks the SCM to stop the service and waits for it to really
+// be stopped — the file cannot be replaced, nor the service repointed
+// safely, while the process is still holding it. A service already stopped
+// is success, not an error.
+func stopService(s *mgr.Service) error {
+	status, err := s.Query()
+	if err != nil {
+		return err
+	}
+	if status.State == svc.Stopped {
+		return nil
+	}
+	if _, err := s.Control(svc.Stop); err != nil && status.State != svc.StopPending {
+		return err
+	}
+	// 30s is generous for this agent: the loop ticks every second and
+	// holds no long transaction. Failing loudly beats leaving the caller
+	// to overwrite a file still in use.
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		status, err := s.Query()
+		if err != nil {
+			return err
+		}
+		if status.State == svc.Stopped {
+			return nil
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	return fmt.Errorf("o serviço não parou em 30s")
 }
 
 func cmdServiceStartOnly(m *mgr.Mgr) {

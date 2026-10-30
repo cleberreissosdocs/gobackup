@@ -14,16 +14,25 @@
 !define APP_NAME "GoBackup Agent"
 !define APP_DIR "GoBackup"
 !define PUBLISHER "GoBackup"
+; Must match cmd/winagent/service_windows.go's serviceName const.
+!define SERVICE_NAME "GoBackupAgent"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\GoBackupAgent"
 
 Name "${APP_NAME}"
 OutFile "gobackup-agent-setup.exe"
 InstallDir "$PROGRAMFILES64\${APP_DIR}"
-InstallDirRegKey HKLM "Software\${APP_DIR}" "InstallDir"
+; NOTE: InstallDirRegKey is deliberately NOT used here. It is evaluated
+; before any code runs, under the DEFAULT (32-bit) registry view, while the
+; install section writes InstallDir with SetRegView 64 — so on an upgrade it
+; read nothing, $INSTDIR fell back to the default path, and the new files
+; landed in a SECOND directory beside the existing install (GoBackup1 and
+; friends) while the service kept running the old binary. .onInit below
+; reads the same view that was written.
 RequestExecutionLevel admin
 SetCompressor /SOLID lzma
 
 !include "MUI2.nsh"
+!include "LogicLib.nsh"
 
 !define MUI_ABORTWARNING
 !define MUI_ICON "icons\gobackup.ico"
@@ -52,6 +61,17 @@ SetCompressor /SOLID lzma
 
 !insertmacro MUI_LANGUAGE "PortugueseBR"
 
+; Reuse the directory of an existing installation. Must read the 64-bit view
+; (the same one the install section writes), otherwise an upgrade installs
+; alongside the previous copy instead of over it.
+Function .onInit
+    SetRegView 64
+    ReadRegStr $0 HKLM "Software\${APP_DIR}" "InstallDir"
+    ${If} $0 != ""
+        StrCpy $INSTDIR $0
+    ${EndIf}
+FunctionEnd
+
 Section "Instalar" SEC01
     ; Write to the native 64-bit registry view — without this, a 32-bit
     ; NSIS installer gets silently redirected to
@@ -61,6 +81,14 @@ Section "Instalar" SEC01
     ; avoids the split and keeps InstallDirRegKey reads consistent with
     ; what Explorer/regedit show by default.
     SetRegView 64
+
+    ; Windows refuses to overwrite the .exe of a running process, so an
+    ; upgrade MUST stop the service and the tray first. Without this the
+    ; file copy fails on a machine that already has the agent running —
+    ; the exact case every upgrade is.
+    nsExec::ExecToLog 'sc stop ${SERVICE_NAME}'
+    nsExec::Exec 'taskkill /F /IM gobackup-winagent-tray.exe'
+    Sleep 2000
 
     SetOutPath "$INSTDIR"
     File "gobackup-winagent.exe"
