@@ -24,7 +24,12 @@ type LocalRunner struct {
 	Registry *progress.Registry
 }
 
-func (r *LocalRunner) ListDir(ctx context.Context, path string) ([]DirEntry, error) {
+func (r *LocalRunner) ListDir(ctx context.Context, path, networkUser, networkPassword string) ([]DirEntry, error) {
+	// The Linux agent's own local UI never has a Windows UNC path to
+	// authenticate to (the network-credential fieldset is hidden for
+	// Platform=="linux" in the template), so networkUser/networkPassword
+	// are always empty here — accepted only to satisfy the Runner
+	// interface shared with CentralRunner.
 	if path == "" {
 		path = "/"
 	}

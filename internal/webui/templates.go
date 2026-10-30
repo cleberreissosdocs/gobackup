@@ -340,10 +340,24 @@ small { color: var(--gb-text-muted); }
   </div>
 </div>
 <script>
-var gbPickerTarget = null, gbPickerBase = "";
+var gbPickerTarget = null, gbPickerBase = "", gbPickerNetUser = "", gbPickerNetPass = "";
 function gbOpenPicker(inputId, base) {
   gbPickerTarget = document.getElementById(inputId);
   gbPickerBase = base;
+  // A folder/file picker opened from a network-path field (file_source,
+  // file_dest, efile_source, efile_dest — never the db/sshkey fields,
+  // which have no such fieldset next to them) needs to authenticate with
+  // whatever the operator has typed in that SAME form's network-credential
+  // fields, since the share can't be listed anonymously. Derive the
+  // sibling fieldset's ids from the input's own id prefix (file_/efile_).
+  gbPickerNetUser = ""; gbPickerNetPass = "";
+  var m = inputId.match(/^(e?file)_(source|dest)$/);
+  if (m) {
+    var u = document.getElementById(m[1] + '_netuser');
+    var p = document.getElementById(m[1] + '_netpass');
+    gbPickerNetUser = u ? u.value : "";
+    gbPickerNetPass = p ? p.value : "";
+  }
   document.getElementById('gb-picker-modal').style.display = 'flex';
   gbLoadDir(gbPickerTarget.value || '/');
 }
@@ -358,7 +372,12 @@ function gbSelectCurrent() {
   gbClosePicker();
 }
 function gbLoadDir(path) {
-  fetch(gbPickerBase + '/browse.json?path=' + encodeURIComponent(path), {credentials: 'same-origin'})
+  fetch(gbPickerBase + '/browse.json', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({path: path, network_user: gbPickerNetUser, network_password: gbPickerNetPass})
+  })
     .then(function(r) { return r.json(); })
     .then(function(data) {
       document.getElementById('gb-picker-path').value = data.path;
@@ -650,8 +669,8 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
       serviço do Windows, e unidades mapeadas existem só para o usuário que fez login.
       Use o caminho de rede e as credenciais abaixo.
     </small>
-    <div>Usuário: <input type="text" name="network_user" value="" autocomplete="off" placeholder="ex.: Administrador"></div>
-    <div>Senha: <input type="password" name="network_password" autocomplete="new-password" placeholder="senha do compartilhamento"></div>
+    <div>Usuário: <input type="text" id="file_netuser" name="network_user" value="" autocomplete="off" placeholder="ex.: Administrador"></div>
+    <div>Senha: <input type="password" id="file_netpass" name="network_password" autocomplete="new-password" placeholder="senha do compartilhamento"></div>
   </fieldset>
   {{end}}
   <div>Tipo de destino:
@@ -854,8 +873,8 @@ var editFileTmpl = template.Must(template.New("edit-file").Funcs(funcs).Parse(`
       serviço do Windows, e unidades mapeadas existem só para o usuário que fez login.
       Use o caminho de rede e as credenciais abaixo.
     </small>
-    <div>Usuário: <input type="text" name="network_user" value="{{.Job.NetworkUser}}" autocomplete="off" placeholder="ex.: Administrador"></div>
-    <div>Senha: <input type="password" name="network_password" autocomplete="new-password" placeholder="{{if .Job.HasNetworkPassword}}deixe em branco para manter a atual{{else}}senha do compartilhamento{{end}}"></div>
+    <div>Usuário: <input type="text" id="efile_netuser" name="network_user" value="{{.Job.NetworkUser}}" autocomplete="off" placeholder="ex.: Administrador"></div>
+    <div>Senha: <input type="password" id="efile_netpass" name="network_password" autocomplete="new-password" placeholder="{{if .Job.HasNetworkPassword}}deixe em branco para manter a atual{{else}}senha do compartilhamento{{end}}"></div>
   </fieldset>
   {{end}}
   <div>Tipo de destino:

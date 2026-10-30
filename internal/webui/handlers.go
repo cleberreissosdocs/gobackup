@@ -72,7 +72,7 @@ func (s *Site) Mount(mux *http.ServeMux, prefix string) {
 	if s.IsCentral {
 		mux.HandleFunc("GET "+prefix+"/", s.Auth.RequireLogin(s.handleHome))
 		mux.HandleFunc("GET "+prefix+"/browse", s.Auth.RequireLogin(s.handleBrowse))
-		mux.HandleFunc("GET "+prefix+"/browse.json", s.Auth.RequireLogin(s.handleBrowseJSON))
+		mux.HandleFunc("POST "+prefix+"/browse.json", s.Auth.RequireLogin(s.handleBrowseJSON))
 		mux.HandleFunc("POST "+prefix+"/jobs/file", s.Auth.RequireLoginAndCSRF(s.handleCreateFileJob))
 		mux.HandleFunc("POST "+prefix+"/jobs/db", s.Auth.RequireLoginAndCSRF(s.handleCreateDBJob))
 		mux.HandleFunc("GET "+prefix+"/jobs/{jobID}/edit", s.Auth.RequireLogin(s.handleEditJobForm))
@@ -185,7 +185,7 @@ func (s *Site) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		path = "/"
 	}
 
-	entries, err := runner.ListDir(ctx, path)
+	entries, err := runner.ListDir(ctx, path, r.URL.Query().Get("network_user"), r.URL.Query().Get("network_password"))
 	var errMsg string
 	if err != nil {
 		errMsg = err.Error()
@@ -217,7 +217,16 @@ func (s *Site) handleBrowseJSON(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(browseJSONResponse{Error: err.Error()})
 		return
 	}
-	path := r.URL.Query().Get("path")
+	// POST with a JSON body (not GET with a query string) specifically so
+	// a network share's password, when the operator types one in to
+	// browse it, never lands in a server access log or browser history.
+	var body struct {
+		Path            string `json:"path"`
+		NetworkUser     string `json:"network_user"`
+		NetworkPassword string `json:"network_password"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	path := body.Path
 	if path == "" {
 		path = "/"
 	}
@@ -232,7 +241,7 @@ func (s *Site) handleBrowseJSON(w http.ResponseWriter, r *http.Request) {
 	// normal open/readdir syscalls with no help needed; the Windows agent
 	// does its own volume-aware filepath.Clean — see cmd/winagent/dirlist.go).
 
-	entries, err := runner.ListDir(ctx, path)
+	entries, err := runner.ListDir(ctx, path, body.NetworkUser, body.NetworkPassword)
 	resp := browseJSONResponse{Path: path, Entries: entries}
 	if err != nil {
 		resp.Error = err.Error()

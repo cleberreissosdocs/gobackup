@@ -72,8 +72,17 @@ func formatResult(result map[string]any) string {
 	return out
 }
 
-func (r *CentralRunner) ListDir(ctx context.Context, path string) ([]DirEntry, error) {
-	outcome, err := r.enqueueAndWait(ctx, "list_dir", map[string]any{"path": path})
+func (r *CentralRunner) ListDir(ctx context.Context, path, networkUser, networkPassword string) ([]DirEntry, error) {
+	payload := map[string]any{"path": path}
+	// Only sent when the operator actually typed something in the
+	// network-credential fields next to the source/dest being browsed —
+	// never the job's own stored (encrypted) secret, which this process
+	// never has access to in plaintext anyway.
+	if networkUser != "" {
+		payload["network_user"] = networkUser
+		payload["network_password"] = networkPassword
+	}
+	outcome, err := r.enqueueAndWait(ctx, "list_dir", payload)
 	if err != nil {
 		return nil, err
 	}

@@ -141,7 +141,13 @@ type ExecutionRecord struct {
 // remote (central, via the command queue + heartbeat-refreshed cache)
 // execution.
 type Runner interface {
-	ListDir(ctx context.Context, path string) ([]DirEntry, error)
+	// networkUser/networkPassword let the folder picker authenticate to a
+	// Windows UNC share (\\server\share) BEFORE a job exists to read a
+	// saved credential from — the browser form passes whatever is
+	// currently typed in the job's own network-credential fields. Both
+	// are empty for a local/non-network path, which every implementation
+	// treats as a no-op (same convention as winagentcore.ConnectUNC).
+	ListDir(ctx context.Context, path, networkUser, networkPassword string) ([]DirEntry, error)
 
 	// CreateFileJob/CreateDBJob persist a NEW job definition and return its
 	// ID WITHOUT running it. Use RunJob to execute it (now or later).
