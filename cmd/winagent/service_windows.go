@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/windows/svc"
+
+	"github.com/cleber/gobackup/internal/core"
 	"golang.org/x/sys/windows/svc/mgr"
 
 	"github.com/cleber/gobackup/internal/winagentcore"
@@ -138,8 +140,24 @@ func (h *gbServiceHandler) Execute(args []string, r <-chan svc.ChangeRequest, ch
 	log.Printf("gobackup: serviço iniciado; log em %s", winagentcore.LogPath())
 
 	stop := make(chan struct{})
+	// The service ticks every second and, until now, wrote nothing to the
+	// log when the Central was unreachable — the failure only reached the
+	// status file the UI reads, so an outage left no trace to look at
+	// afterwards. Logging every tick is not an option here either: this
+	// log rotates at 2 MiB keeping one generation, so a few hours of
+	// spam would evict the history worth keeping. One line when the
+	// connection breaks, one when it returns.
+	var beatFailure core.RepeatedError
 	go winagentcore.RunLoop(time.Second, func(res winagentcore.TickResult) {
 		winagentcore.SaveStatus(res)
+		switch {
+		case res.Err != nil:
+			beatFailure.Report("heartbeat", res.Err, log.Printf)
+		case res.Connected:
+			beatFailure.Resolved("heartbeat", log.Printf)
+		}
+		// An agent not yet enrolled with a Central is neither connected
+		// nor failing: it stays silent, as it should.
 	}, stop)
 
 	changes <- svc.Status{State: svc.Running, Accepts: accepted}

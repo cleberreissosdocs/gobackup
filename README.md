@@ -30,6 +30,25 @@ Ambos criados e disparados pela interface web (local do agente ou
 remotamente pelo Central) ou pela CLI — veja a seção **Uso** mais abaixo
 para os comandos.
 
+### Agendamento e fuso horário
+
+Tarefas podem rodar sozinhas (diariamente, semanalmente, mensalmente ou por
+expressão cron). O horário é avaliado **pelo agente, no relógio dele** —
+não no do seu navegador nem no do Central. Isso importa de verdade: num
+servidor cujo host roda em UTC e cujo agente roda em `America/Sao_Paulo`,
+um agendamento digitado como 03:00 dispara três horas longe do esperado, e
+nada acusa erro — o backup simplesmente não acontece na hora prevista.
+
+Por isso o agente informa seu fuso ao Central e o formulário mostra, logo
+abaixo do agendamento, em qual relógio aquele horário será interpretado
+(ex.: *"Os horários são interpretados no fuso do agente: America/Sao_Paulo
+(UTC-03:00)"*). Agentes em versão anterior a essa aparecem como "ainda não
+informou" até serem atualizados.
+
+Backup de banco agendado autentica sozinho: a senha informada na tarefa
+fica salva (cifrada) e o agendador a usa, sem ninguém para digitá-la de
+madrugada.
+
 ## Instalação rápida (recomendado)
 
 ### Central (painel)
@@ -45,7 +64,11 @@ cp .env.central.example .env.central
 
 docker compose -f docker-compose.central.yml --env-file .env.central up -d --build
 
-# aplicar o schema do banco (passo único, só na 1ª instalação):
+# O schema é aplicado sozinho a cada subida do serviço — não há passo
+# manual. O comando abaixo existe só para migrar um servidor sem
+# reiniciá-lo; se a migração falhar, o serviço não sobe (de propósito:
+# servidor rodando contra schema errado falha quando alguém precisa do
+# dado, e aí é tarde).
 docker compose -f docker-compose.central.yml --env-file .env.central exec central \
   gobackup-central migrate -db "postgres://gobackup:***@postgres:5432/gobackup?sslmode=disable"
 ```
@@ -122,7 +145,7 @@ Manuais em PDF, passo a passo com capturas de tela:
 ### Agente Windows
 
 Baixe o instalador (Windows 10/11, 64 bits):
-[**gobackup-agent-setup.exe**](https://github.com/cleberreissosdocs/gobackup/releases/download/windows-agent-v6/gobackup-agent-setup.exe)
+[**gobackup-agent-setup.exe**](https://github.com/cleberreissosdocs/gobackup/releases/download/windows-agent-v7/gobackup-agent-setup.exe)
 
 Dê duplo clique, siga o assistente (o Windows pode avisar via SmartScreen
 na primeira execução — clique em "Mais informações" → "Executar assim
@@ -196,7 +219,8 @@ cp .env.central.example .env.central
 
 docker compose -f docker-compose.central.yml --env-file .env.central up -d --build
 
-# aplicar schema (usuário admin/admin é criado automaticamente no 1º start):
+# Schema aplicado automaticamente ao subir (usuário admin/admin criado no
+# 1º start). O comando abaixo só é necessário para migrar sem reiniciar:
 docker compose -f docker-compose.central.yml --env-file .env.central exec central \
   gobackup-central migrate -db "postgres://gobackup:***@postgres:5432/gobackup?sslmode=disable"
 
@@ -221,7 +245,8 @@ cp .env.agent.example .env.agent
 
 docker compose -f docker-compose.agent.yml --env-file .env.agent up -d --build postgres
 
-# aplicar schema (usuário admin/admin é criado automaticamente no 1º start):
+# Schema aplicado automaticamente ao subir (usuário admin/admin criado no
+# 1º start). O comando abaixo só é necessário para migrar sem reiniciar:
 docker compose -f docker-compose.agent.yml --env-file .env.agent run --rm agent \
   migrate -db "postgres://gobackup:***@postgres:5432/gobackup?sslmode=disable"
 
@@ -335,8 +360,12 @@ Telegram via bot token + chat_id). Disparos automáticos:
 - Teste automatizado de restauração não existe ainda: o sistema registra
   tamanho e quantidade de arquivos de cada execução (o que já denuncia uma
   cópia vazia), mas não verifica que o backup restaura.
-- `password_ref` em `db_connections` não usa um cofre de segredos real
-  ainda — a senha só trafega no payload do comando (TLS), não é persistida.
+- A senha de banco é persistida cifrada (AES-256-GCM, chave em
+  `app_secrets`), o que permite backup agendado autenticar sozinho — mas a
+  chave mora no MESMO banco: isso protege dump SQL, disco roubado e cópia
+  do volume de backup, **não** protege quem já tem acesso de leitura ao
+  banco. Um cofre de segredos externo continua sendo o próximo passo se o
+  agente passar a guardar credenciais de sistemas fora da sua rede.
 - API JSON administrativa redireciona para `/login` em vez de responder
   401 quando sem sessão (adequado para o fluxo web, não para automação
   programática — se precisar de API token separado, é um próximo passo).
