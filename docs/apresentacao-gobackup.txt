@@ -1,271 +1,146 @@
-APRESENTAÇÃO — GOBACKUP
-Texto para fala. Duração estimada: 14 a 17 minutos.
-Marcações [PAUSA] e [TELA] são orientações, não devem ser lidas.
+APRESENTAÇÃO — GOBACKUP (versão curta)
+Texto para fala. Cerca de 5 minutos.
+Versão longa, com mais detalhe técnico: apresentacao-gobackup-completa.txt
 
 
 -----------------------------------------------------------------------
-1. ABERTURA — O PROBLEMA (3-4 min)
+1. O PROBLEMA (1 min 30)
 -----------------------------------------------------------------------
 
-Boa tarde. Vou falar sobre o GoBackup, um sistema de backup que
-desenvolvi para proteger os servidores da operação.
+Boa tarde. Vou falar do GoBackup, o sistema de backup que desenvolvi
+para os nossos servidores.
 
-Deixo a pergunta que originou o projeto: se o servidor principal parasse
-agora, quanto tempo levaria para você descobrir? E, mais importante,
-quanto tempo levaria para descobrir que o backup dele parou de rodar há
-três semanas?
-
-[PAUSA]
-
-Essa segunda pergunta é a que machuca. Backup é um serviço silencioso.
-Quando funciona, ninguém percebe. Quando para de funcionar, também
-ninguém percebe — até o dia em que você precisa dele. É o único sistema
-da infraestrutura cujo defeito só se manifesta no pior momento possível.
-
-E eu sei disso porque era exatamente assim que a gente trabalhava.
+Começo pelo problema, que a gente viveu durante anos.
 
 Cada servidor tinha seu script de backup, e cada script mandava um
-e-mail quando terminava. O resultado eram dezenas de e-mails por dia
-chegando na caixa de entrada. Todo dia alguém tinha que abrir um por um
-e ler até o fim para saber se aquele backup tinha concluído com sucesso
-ou morrido no meio.
+e-mail ao terminar. Eram dezenas de e-mails por dia. Todo dia alguém
+abria um por um para saber se aquele backup tinha concluído ou morrido
+no meio.
 
 [PAUSA]
 
-Pensem no que esse método tem de frágil.
+Dois defeitos nisso.
 
-Conferir dezenas de e-mails iguais é uma tarefa que o cérebro humano
-aprende a não fazer. Na primeira semana você lê todos. Na terceira, você
-bate o olho no assunto. No segundo mês, eles viram barulho e vão para
-uma pasta.
+O primeiro: conferir dezenas de e-mails iguais é tarefa que o cérebro
+aprende a não fazer. Na primeira semana você lê todos. No segundo mês,
+eles viram barulho e vão para uma pasta.
 
-Mas o pior nem é esse. O pior é o e-mail que NÃO chega. Se o script
-quebrou, se o servidor desligou, se a tarefa nunca iniciou — não chega
-e-mail nenhum. E ausência de e-mail é exatamente igual a uma caixa de
-entrada tranquila. O sinal de problema mais grave que existe é
-indistinguível de um dia normal.
+O segundo é pior. É o e-mail que NÃO chega. Script quebrado, servidor
+desligado, tarefa que nunca iniciou — não chega aviso nenhum. E ausência
+de e-mail é igualzinha a uma caixa de entrada tranquila. O sinal mais
+grave que existe fica indistinguível de um dia normal.
 
 Era preciso notar uma ausência, no meio de dezenas de presenças, todo
-dia. Isso não é disciplina, é sorte.
-
-Então o GoBackup não foi desenhado só para copiar arquivos. Isso o
-rsync já fazia há trinta anos. Ele foi desenhado para inverter essa
-lógica: em vez de dezenas de avisos que você precisa conferir, uma tela
-só que responde, a qualquer momento, uma pergunta — todos os meus
-servidores estão protegidos neste exato instante?
-
-A diferença é que agora o silêncio não é mais ambíguo. O servidor que
-parou de reportar aparece vermelho, sozinho, sem ninguém precisar
-procurar.
+dia. Isso não é disciplina. É sorte.
 
 
 -----------------------------------------------------------------------
-2. O QUE É, EM UMA FRASE (1 min)
+2. O QUE É (1 min 30)
 -----------------------------------------------------------------------
 
-O GoBackup tem duas partes.
+O GoBackup inverte essa lógica. Em vez de dezenas de avisos que você
+confere, uma tela só, que responde a qualquer momento: todos os meus
+servidores estão protegidos agora?
 
-Um agente, que é instalado em cada servidor que se quer proteger. Ele é
-quem faz o trabalho: copia arquivos, extrai bancos de dados, aplica
-compressão e política de retenção.
+São duas partes. Um agente, instalado em cada servidor, que faz o
+trabalho — copia arquivos e extrai bancos de dados. E um painel central,
+hospedado fora desses servidores, que enxerga todos ao mesmo tempo.
 
-E um painel central, hospedado em infraestrutura separada, que enxerga
-todos os agentes ao mesmo tempo — quem está online, o que rodou, o que
-falhou, e há quanto tempo.
+Fica fora de propósito: painel hospedado na máquina que caiu não serve
+para avisar que a máquina caiu.
 
-A separação é deliberada. O painel fica fora dos servidores que ele
-monitora, porque um painel hospedado na máquina que caiu não serve para
-avisar que a máquina caiu.
+[TELA: painel]
 
+Uma decisão de arquitetura vale citar, porque é ela que torna o sistema
+instalável em qualquer lugar: o agente sempre inicia a conexão com o
+painel. O painel nunca procura o agente.
 
------------------------------------------------------------------------
-3. ARQUITETURA — A DECISÃO QUE DEFINE O PRODUTO (3 min)
------------------------------------------------------------------------
+Isso significa que não é preciso abrir nenhuma porta no servidor
+protegido. Funciona atrás de firewall, atrás de NAT, em rede de cliente.
+Instalar é rodar um instalador e informar o endereço do painel — não é
+um projeto de infraestrutura a cada servidor.
 
-[TELA: diagrama agente → central]
-
-Há uma decisão de arquitetura que vale explicar, porque é ela que torna
-o sistema instalável no mundo real.
-
-O agente SEMPRE inicia a conexão com o Central. O Central nunca procura
-o agente. A comunicação é por consulta periódica sobre HTTPS, e nessa
-mesma viagem trafegam três coisas: o sinal de vida do agente, os
-comandos que o Central quer executar, e os resultados dos comandos
-anteriores.
-
-Por que isso importa? Porque significa que não é preciso abrir uma única
-porta de entrada no servidor protegido. Ele funciona atrás de NAT, atrás
-de firewall corporativo, em rede de cliente, em link doméstico. Qualquer
-lugar de onde se consiga sair para a internet.
-
-O caminho inverso — o painel buscando cada servidor — exigiria IP fixo,
-redirecionamento de porta e uma regra de firewall em cada cliente. Seria
-um projeto de infraestrutura a cada instalação, e cada porta aberta é
-uma superfície de ataque nova. Aqui a instalação é executar um
-instalador e informar o endereço do painel.
-
-Um efeito colateral bom: como a consulta é frequente, o Central detecta
-um servidor silencioso em poucos segundos. Não é um relatório que chega
-no dia seguinte — é um painel que fica vermelho enquanto o problema está
-acontecendo.
+E o silêncio deixou de ser ambíguo: quem para de reportar aparece
+vermelho em segundos, sozinho, sem ninguém procurar.
 
 
 -----------------------------------------------------------------------
-4. O QUE ELE FAZ (3 min)
+3. UM CASO REAL (1 min 30)
 -----------------------------------------------------------------------
 
-[TELA: tela de criação de tarefa]
+Um exemplo de por que um backup falha na prática.
 
-Dois tipos de backup.
-
-Arquivos, usando rsync, com destino local, pasta de rede ou outro
-servidor via SSH. Suporta cópia completa, incremental e diferencial, e
-aceita uma lista de exclusões — útil quando um punhado de arquivos
-ilegíveis estaria derrubando a cópia inteira.
-
-E bancos de dados: MariaDB, MySQL, PostgreSQL, SQLite e SQL Server,
-incluindo o Express, com compressão opcional. Cada um usando a
-ferramenta nativa correta, não uma cópia de arquivo por cima de banco
-aberto — que é o erro clássico que produz backup corrompido sem avisar.
-
-Tudo isso se administra de três lugares: a tela local do agente, a
-linha de comando, ou remotamente pelo painel central, com as mesmas
-opções. O operador não precisa entrar no servidor para criar ou rodar
-um backup.
-
-
------------------------------------------------------------------------
-5. O CASO QUE PROVA O PRODUTO (2 min)
------------------------------------------------------------------------
-
-Quero contar um problema real, porque ele mostra o tipo de detalhe que
-separa um protótipo de um sistema que se usa em produção.
-
-Num servidor Windows, havia um backup que precisava ler uma pasta de
-outro servidor da rede. A pasta estava mapeada como unidade Z:, e
-funcionava perfeitamente quando o técnico testava na mão. Mas o backup
-automático falhava, sempre, dizendo que o caminho não existia.
+Num servidor Windows havia um backup que lia uma pasta de outro servidor
+da rede, mapeada como unidade Z:. Funcionava quando o técnico testava na
+mão. O backup automático falhava sempre, dizendo que o caminho não
+existia.
 
 [PAUSA]
 
-A causa: o agente roda como serviço do Windows. Unidade mapeada não
+A causa: o agente roda como serviço do Windows, e unidade mapeada não
 existe para um serviço — ela pertence à sessão de quem fez login. O
-técnico enxergava o Z: porque estava logado. O serviço, não. E essa
-diferença é invisível: o mesmo caminho, na mesma máquina, funciona para
-uma conta e não existe para a outra.
+técnico enxergava o Z: porque estava logado. O serviço, não.
 
-A solução foi o agente passar a aceitar o caminho de rede completo com
-usuário e senha próprios, guardando essa senha cifrada pelo mecanismo do
-próprio Windows, amarrada àquela máquina. Resultado medido em produção:
-nove gigabytes e dezoito mil novecentos e vinte e três arquivos,
-copiados de um servidor para outro, sem ninguém logado na máquina.
+O mesmo caminho, na mesma máquina, funcionando para uma conta e
+inexistente para a outra. Hoje o agente acessa a pasta de rede com
+credencial própria, guardada cifrada. Resultado medido em produção: nove
+gigabytes e dezoito mil arquivos copiados, sem ninguém logado.
 
-Esse é o ponto. Backup não falha por falta de algoritmo de cópia. Falha
-nesses detalhes de permissão, de sessão, de credencial — e é neles que o
-produto foi endurecido.
+É esse o ponto. Backup não falha por falta de algoritmo de cópia. Falha
+em permissão, sessão, credencial — e é aí que o sistema foi endurecido.
 
 
 -----------------------------------------------------------------------
-6. CONFIABILIDADE (2 min)
+4. ONDE ESTÁ E O QUE FALTA (45 s)
 -----------------------------------------------------------------------
 
-Três proteções que vale citar, porque são do tipo que só se descobre
-que faltava depois do estrago.
+O sistema está em produção, com agentes em Linux e em Windows Server
+monitorados na mesma tela, backup de arquivos e dos principais bancos de
+dados, e agendamento automático nas duas plataformas.
 
-Primeira: a mesma tarefa nunca roda duas vezes ao mesmo tempo. Um clique
-duplo chegava a iniciar duas cópias simultâneas para o mesmo destino. A
-recusa hoje é do próprio agente, não só do botão na tela — porque botão
-desabilitado não protege contra um agendamento que dispara no meio de
-uma execução manual. Tarefas diferentes, no entanto, rodam em paralelo
-normalmente: a trava é por tarefa, não por servidor.
-
-Segunda: se o serviço for reiniciado no meio de um backup, a tarefa não
-fica eternamente marcada como "em execução". A marca é limpa quando o
-agente sobe, com o motivo registrado.
-
-Terceira: erro de backup chega legível. Uma falha de cópia produzia
-megabytes de saída bruta; hoje produz um resumo do que deu errado.
-Parece cosmético, mas ninguém investiga um erro que não consegue ler —
-e erro não investigado vira backup quebrado que ninguém conserta.
-
-Sobre segurança, em uma frase: TLS obrigatório nas duas pontas, o agente
-valida o certificado do painel contra uma autoridade fixada, senhas
-guardadas com bcrypt, proteção contra falsificação de formulário,
-bloqueio após cinco tentativas de login, e senhas de banco que nunca são
-gravadas em texto puro.
+O que ainda não existe, e prefiro dizer antes que perguntem: teste
+automatizado de restauração. O sistema registra tamanho e quantidade de
+arquivos de cada execução, o que já denuncia uma cópia vazia, mas não
+verifica que o backup restaura. É o próximo passo.
 
 
 -----------------------------------------------------------------------
-7. ESTADO ATUAL E PRÓXIMOS PASSOS (1-2 min)
+5. FECHAMENTO (30 s)
 -----------------------------------------------------------------------
 
-Hoje o sistema está em produção, com o painel central em servidor
-próprio e agentes rodando tanto em Linux quanto em Windows Server,
-sendo monitorados na mesma tela. O instalador do Windows é gráfico e
-instala o serviço; o do Linux é um script que resolve as dependências
-sozinho.
+Resumindo: antes, a resposta sobre os backups vinha em dezenas de
+e-mails que alguém precisava conferir — e o problema mais grave chegava
+como silêncio.
 
-Sendo honesto sobre o que ainda não está pronto:
+Hoje vem de uma tela só, e o silêncio tem cor.
 
-O isolamento por cliente, para operar vários clientes na mesma tela sem
-que um enxergue o outro, está preparado no banco de dados mas ainda não
-na interface.
+O backup em si é a parte fácil. O difícil é saber, todo dia, que ele
+continua acontecendo.
 
-E as senhas de banco usadas nos backups trafegam de forma protegida, mas
-ainda não vivem num cofre de segredos dedicado.
-
-Prefiro apresentar essa lista a descobrirem por conta. Um sistema de
-backup se vende pela confiança, e confiança não sobrevive a uma surpresa.
-
-
------------------------------------------------------------------------
-8. FECHAMENTO (1 min)
------------------------------------------------------------------------
-
-Volto à pergunta do começo: se o servidor parasse agora, quanto tempo
-levaria para você descobrir?
-
-Com o GoBackup, segundos — e numa tela só, para todos os servidores ao
-mesmo tempo.
-
-E ninguém mais precisa abrir dezenas de e-mails para descobrir isso. A
-pergunta deixou de ser respondida uma mensagem por vez, no esforço de
-alguém, e passou a ser respondida de uma vez só, por quem quiser olhar.
-
-O backup em si é a parte fácil. O difícil é saber, todo dia, sem
-precisar perguntar a ninguém, que ele continua acontecendo. É isso que
-este sistema entrega.
-
-Obrigado. Fico à disposição para as perguntas.
+Obrigado.
 
 
 =======================================================================
-PERGUNTAS PROVÁVEIS — RESPOSTAS CURTAS
+SE PERGUNTAREM
 =======================================================================
 
-"Por que não usar uma solução de mercado?"
-   Pelo controle e pelo custo por servidor. As soluções de mercado
-   cobram por agente e, na prática, usam as mesmas ferramentas por
-   baixo — rsync, pg_dump. O que se compra é o painel. Esse painel foi
-   construído sob medida para a nossa operação, e cada servidor novo
-   custa o tempo de rodar um instalador.
+"Por que não uma solução de mercado?"
+   Cobram por agente e usam as mesmas ferramentas por baixo. O que se
+   compra é o painel — e esse foi feito sob medida para a nossa
+   operação. Servidor novo custa o tempo de rodar um instalador.
 
-"E se o painel central cair?"
-   Os backups continuam. O agente é autônomo: tem seu próprio banco e
-   sua própria interface, e não depende do painel para executar. Cai a
-   visibilidade central, não a proteção.
+"E se o painel cair?"
+   Os backups continuam. O agente é autônomo, tem seu próprio banco e
+   sua própria tela. Cai a visibilidade, não a proteção.
 
-"Como vocês sabem que o backup presta de verdade?"
-   Hoje o sistema registra tamanho e quantidade de arquivos de cada
-   execução, o que já denuncia uma cópia que veio vazia. Teste de
-   restauração automatizado é o próximo passo natural, e é uma
-   pergunta justa: backup que nunca foi restaurado é uma suposição.
+"Como sabem que o backup presta?"
+   Hoje, pelo tamanho e quantidade de arquivos de cada execução, que
+   denunciam uma cópia vazia. Restauração automatizada é o próximo
+   passo — backup que nunca foi restaurado é uma suposição.
 
-"Quanto tempo leva para instalar num servidor novo?"
-   Minutos. No Windows é um instalador gráfico; no Linux, um script que
-   instala o que falta. Depois é só apontar para o painel.
+"Quanto tempo para instalar num servidor novo?"
+   Minutos. Instalador gráfico no Windows, script no Linux.
 
 "Aguenta quantos servidores?"
    O agente trabalha sozinho e só reporta o resultado, então o painel
-   não é gargalo de processamento. O crescimento é no volume de
-   consultas, não no trabalho de backup.
+   não é gargalo de processamento.
