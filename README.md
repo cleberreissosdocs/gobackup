@@ -122,7 +122,7 @@ Manuais em PDF, passo a passo com capturas de tela:
 ### Agente Windows
 
 Baixe o instalador (Windows 10/11, 64 bits):
-[**gobackup-agent-setup.exe**](https://github.com/cleberreissosdocs/gobackup/releases/download/windows-agent-v4/gobackup-agent-setup.exe)
+[**gobackup-agent-setup.exe**](https://github.com/cleberreissosdocs/gobackup/releases/download/windows-agent-v5/gobackup-agent-setup.exe)
 
 Dê duplo clique, siga o assistente (o Windows pode avisar via SmartScreen
 na primeira execução — clique em "Mais informações" → "Executar assim
@@ -332,8 +332,9 @@ Telegram via bot token + chat_id). Disparos automáticos:
 - Multi-tenant (isolamento por organização/cliente na UI) ainda não
   implementado — o schema já tem `tenant_id` em tudo, falta a camada de
   usuários/seleção de tenant.
-- Agendamento (cron) dos jobs ainda não roda automaticamente no agente —
-  hoje todo disparo é manual (CLI, UI local, ou comando remoto do Central).
+- Teste automatizado de restauração não existe ainda: o sistema registra
+  tamanho e quantidade de arquivos de cada execução (o que já denuncia uma
+  cópia vazia), mas não verifica que o backup restaura.
 - `password_ref` em `db_connections` não usa um cofre de segredos real
   ainda — a senha só trafega no payload do comando (TLS), não é persistida.
 - API JSON administrativa redireciona para `/login` em vez de responder

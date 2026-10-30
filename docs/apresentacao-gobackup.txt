@@ -176,10 +176,6 @@ sozinho.
 
 Sendo honesto sobre o que ainda não está pronto:
 
-O agendamento automático funciona nos agentes Linux. No agente Windows,
-a execução hoje é disparada manualmente ou pelo painel — o agendamento
-nativo está em desenvolvimento.
-
 O isolamento por cliente, para operar vários clientes na mesma tela sem
 que um enxergue o outro, está preparado no banco de dados mas ainda não
 na interface.
