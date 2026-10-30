@@ -99,6 +99,11 @@ func RunLoop(interval time.Duration, onTick func(TickResult), stop <-chan struct
 	if n, err := agent.Store.ResetStaleRunning(); err == nil && n > 0 {
 		log.Printf("gobackup: %d tarefa(s) estavam marcadas como em execução de uma sessão anterior; marcadas como interrompidas", n)
 	}
+	// Fire scheduled jobs. This runs regardless of whether the agent is
+	// enrolled with a Central: a schedule configured on the local screen
+	// must keep running even when the Central is unreachable, since the
+	// agent is the thing that actually protects the server.
+	go NewScheduler(agent.Store, agent.Executor).Run(stop)
 	var pending []poller.CommandResult
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

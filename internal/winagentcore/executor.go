@@ -11,6 +11,7 @@ package winagentcore
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -176,7 +177,47 @@ func jobFromDBPayload(payload map[string]any) Job {
 		RetentionDays: payloadInt(payload, "retention_days", 0),
 		Cron:          payloadStr(payload, "cron"),
 		Enabled:       payloadBool(payload, "enabled", true),
+		DBPasswordEnc: encryptOrEmpty(payloadStr(payload, "password")),
 	}
+}
+
+// StartJob reserves a job and launches it in the background, returning an
+// error if it is unknown or already running.
+//
+// Both entry points go through here -- the operator's "Executar" (via the
+// run_job command) and the scheduler -- so the no-double-execution
+// reservation covers the dangerous combination too: a schedule firing
+// while a manual run of the same job is still going. The reservation is
+// taken SYNCHRONOUSLY, before the goroutine starts, because taking it
+// inside would let two simultaneous callers both pass the check.
+//
+// password may be empty, in which case a database job falls back to the
+// credential stored with it -- which is the only thing a scheduled run
+// can use, since nobody is there to type one.
+func (e *Executor) StartJob(id, password string) error {
+	j, found, err := e.Store.Get(id)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("job not found: %s", id)
+	}
+	if !e.tryReserve(id) {
+		return fmt.Errorf("esta tarefa já está em execução")
+	}
+	if j.Kind == "database" {
+		if password == "" && j.DBPasswordEnc != "" {
+			if pw, err := DecryptSecret(j.DBPasswordEnc); err == nil {
+				password = pw
+			} else {
+				log.Printf("gobackup: tarefa %q: não foi possível decifrar a senha do banco guardada: %v", j.Name, err)
+			}
+		}
+		go e.runDBJob(j, password)
+	} else {
+		go e.runFileJob(j)
+	}
+	return nil
 }
 
 // NormalizeDestPath only runs the Windows path fixups for a local/NAS
@@ -213,6 +254,10 @@ func dbJobResult(j Job) map[string]any {
 		"destination_path": j.Dest, "destination_type": j.DestType,
 		"ssh_host": j.SSHHost, "ssh_port": j.SSHPort, "ssh_user": j.SSHUser, "ssh_key_path": j.SSHKey,
 		"retention_days": j.RetentionDays, "cron": j.Cron, "enabled": j.Enabled,
+		// Mirrors has_network_password: the secret itself is never sent
+		// back, only whether one is stored, so the form can show "uma
+		// senha está salva -- deixe em branco para mantê-la".
+		"has_db_password": j.DBPasswordEnc != "",
 	}
 }
 
@@ -286,6 +331,9 @@ func (e *Executor) dispatch(cmd poller.QueuedCommand) (map[string]any, error) {
 		if payloadStr(cmd.Payload, "network_password") == "" {
 			updated.NetworkPasswordEnc = existing.NetworkPasswordEnc
 		}
+		if payloadStr(cmd.Payload, "password") == "" {
+			updated.DBPasswordEnc = existing.DBPasswordEnc
+		}
 		if err := e.Store.Update(id, updated); err != nil {
 			return nil, err
 		}
@@ -326,21 +374,8 @@ func (e *Executor) dispatch(cmd poller.QueuedCommand) (map[string]any, error) {
 
 	case "run_job":
 		id := payloadStr(cmd.Payload, "job_id")
-		password := payloadStr(cmd.Payload, "password")
-		j, found, err := e.Store.Get(id)
-		if err != nil {
+		if err := e.StartJob(id, payloadStr(cmd.Payload, "password")); err != nil {
 			return nil, err
-		}
-		if !found {
-			return nil, fmt.Errorf("job not found: %s", id)
-		}
-		if !e.tryReserve(id) {
-			return nil, fmt.Errorf("esta tarefa já está em execução")
-		}
-		if j.Kind == "database" {
-			go e.runDBJob(j, password)
-		} else {
-			go e.runFileJob(j)
 		}
 		return map[string]any{"job_id": id, "status": "started"}, nil
 

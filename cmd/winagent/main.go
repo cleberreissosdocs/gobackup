@@ -210,6 +210,7 @@ func cmdLocalCreateJob(args []string) {
 	sshUser := fs.String("ssh-user", "", "SSH destination user")
 	sshKey := fs.String("ssh-key", "", "path to SSH private key")
 	excludes := fs.String("exclude", "", "paths never to copy: rsync --exclude patterns, comma-separated (e.g. \"*.tmp,cache/,/logs\")")
+	cron := fs.String("cron", "", "agendamento no formato cron de 5 campos (minuto hora dia mês dia-da-semana), ex. \"0 3 * * *\" para todo dia às 3h; vazio = só execução manual")
 	fs.Parse(args)
 	if *name == "" || *source == "" || *dest == "" {
 		fatal("-name, -source e -dest são obrigatórios")
@@ -222,6 +223,7 @@ func cmdLocalCreateJob(args []string) {
 		Kind: "files", Name: *name, Source: winagentcore.NormalizeWindowsPath(*source), Dest: winagentcore.NormalizeDestPath(*dest, *destType), DestType: *destType, DeleteExtraneous: *deleteExtraneous,
 		Excludes: excludeList,
 		SSHHost:  *sshHost, SSHPort: *sshPort, SSHUser: *sshUser, SSHKey: *sshKey,
+		Cron: *cron, Enabled: true,
 	})
 	if err != nil {
 		fatal(err.Error())
@@ -246,6 +248,7 @@ func cmdLocalCreateDBJob(args []string) {
 	sshUser := fs.String("ssh-user", "", "SSH destination user")
 	sshKey := fs.String("ssh-key", "", "path to SSH private key")
 	retention := fs.Int("retention-days", 0, "delete this job's own dumps older than N days (0 = keep forever)")
+	cron := fs.String("cron", "", "agendamento no formato cron de 5 campos (minuto hora dia mês dia-da-semana), ex. \"0 3 * * *\" para todo dia às 3h; vazio = só execução manual")
 	fs.Parse(args)
 	if *name == "" || *engine == "" || *dest == "" {
 		fatal("-name, -engine e -dest são obrigatórios")
@@ -256,6 +259,7 @@ func cmdLocalCreateDBJob(args []string) {
 		Database: *database, SQLitePath: winagentcore.NormalizeWindowsPath(*sqlitePath), Compression: *compression,
 		Dest: winagentcore.NormalizeDestPath(*dest, *destType), DestType: *destType, SSHHost: *sshHost, SSHPort: *sshPort, SSHUser: *sshUser, SSHKey: *sshKey,
 		RetentionDays: *retention,
+		Cron:          *cron, Enabled: true,
 	})
 	if err != nil {
 		fatal(err.Error())

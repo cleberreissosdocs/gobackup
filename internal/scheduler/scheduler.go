@@ -11,8 +11,6 @@ package scheduler
 import (
 	"context"
 	"log"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -23,67 +21,13 @@ import (
 	"github.com/cleber/gobackup/internal/jobexec"
 )
 
-// Matches reports whether cron expression expr is due at time t (minute
-// granularity — seconds are ignored). Returns false for a malformed
-// expression rather than erroring, so one bad job can't crash the loop.
+// Matches reports whether cron expression expr is due at time t.
+//
+// The implementation moved to core.CronMatches so the Windows agent can
+// share it (see internal/core/cron.go); this stays as the name the
+// agent's scheduler and its tests already use.
 func Matches(expr string, t time.Time) bool {
-	fields := strings.Fields(expr)
-	if len(fields) != 5 {
-		return false
-	}
-	return matchField(fields[0], t.Minute(), 0, 59) &&
-		matchField(fields[1], t.Hour(), 0, 23) &&
-		matchField(fields[2], t.Day(), 1, 31) &&
-		matchField(fields[3], int(t.Month()), 1, 12) &&
-		matchField(fields[4], int(t.Weekday()), 0, 6)
-}
-
-func matchField(f string, val, min, max int) bool {
-	for _, part := range strings.Split(f, ",") {
-		if matchPart(part, val, min, max) {
-			return true
-		}
-	}
-	return false
-}
-
-func matchPart(part string, val, min, max int) bool {
-	base, step := part, 0
-	if i := strings.IndexByte(part, '/'); i >= 0 {
-		base = part[:i]
-		step, _ = strconv.Atoi(part[i+1:])
-	}
-
-	lo, hi := min, max
-	switch {
-	case base == "*":
-		// lo/hi already full range
-	case strings.Contains(base, "-"):
-		segs := strings.SplitN(base, "-", 2)
-		a, errA := strconv.Atoi(segs[0])
-		b, errB := strconv.Atoi(segs[1])
-		if errA != nil || errB != nil {
-			return false
-		}
-		lo, hi = a, b
-	default:
-		n, err := strconv.Atoi(base)
-		if err != nil {
-			return false
-		}
-		if step <= 0 {
-			return n == val
-		}
-		lo, hi = n, max
-	}
-
-	if val < lo || val > hi {
-		return false
-	}
-	if step <= 0 {
-		return true
-	}
-	return (val-lo)%step == 0
+	return core.CronMatches(expr, t)
 }
 
 // Run loops forever (until ctx is cancelled), checking every tickEvery

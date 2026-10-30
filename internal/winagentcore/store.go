@@ -59,6 +59,19 @@ type Job struct {
 	Compression   string `json:"compression,omitempty"`
 	RetentionDays int    `json:"retention_days,omitempty"`
 
+	// DBPasswordEnc is the database password, DPAPI-protected at machine
+	// scope exactly like NetworkPasswordEnc (and, as there, with no
+	// plaintext twin so nothing can serialize one into jobs.json).
+	//
+	// A MANUAL run gets its password in the command payload, typed by
+	// whoever clicked. A SCHEDULED run has nobody to type it, so the
+	// secret has to be recoverable by the service alone -- that is the
+	// unavoidable cost of unattended execution, and the same tradeoff
+	// already accepted for network credentials. The payload password
+	// still wins when present, so a one-off run can use a different
+	// credential without overwriting the stored one.
+	DBPasswordEnc string `json:"db_password_enc,omitempty"`
+
 	// --- destination (shared by both kinds) ---
 	Dest     string `json:"destination_path"`
 	DestType string `json:"destination_type"` // local|nas|ssh
@@ -166,7 +179,10 @@ func (s *JobStore) Create(j Job) (Job, error) {
 		}
 	}
 	j.ID = uuid.NewString()
-	j.Enabled = true
+	// Enabled is whatever the caller asked for. It used to be forced to
+	// true here, which was harmless while nothing read the field -- but
+	// the scheduler honours it, so forcing it would silently re-enable a
+	// job the operator had deliberately switched off, and then run it.
 	f.Jobs = append(f.Jobs, j)
 	return j, s.save(f)
 }
