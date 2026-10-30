@@ -638,7 +638,6 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
   <div>Tipo de destino:
     <select name="dest_type" class="gb-dest-type" onchange="gbToggleSSHFields(this)">
       <option value="local">Local</option>
-      <option value="nas">NAS (montado)</option>
       <option value="ssh">SSH remoto</option>
     </select>
   </div>
@@ -702,7 +701,6 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
   <div>Tipo de destino:
     <select name="dest_type" class="gb-dest-type" onchange="gbToggleSSHFields(this)">
       <option value="local">Local</option>
-      <option value="nas">NAS (montado)</option>
       <option value="ssh">SSH remoto</option>
     </select>
   </div>
@@ -845,7 +843,7 @@ var editFileTmpl = template.Must(template.New("edit-file").Funcs(funcs).Parse(`
   <div>Tipo de destino:
     <select name="dest_type" class="gb-dest-type" onchange="gbToggleSSHFields(this)">
       <option value="local" {{if eq .Job.DestType "local"}}selected{{end}}>Local</option>
-      <option value="nas" {{if eq .Job.DestType "nas"}}selected{{end}}>NAS (montado)</option>
+      {{if eq .Job.DestType "nas"}}<option value="nas" selected>NAS (montado — tipo antigo, idêntico a Local)</option>{{end}}
       <option value="ssh" {{if eq .Job.DestType "ssh"}}selected{{end}}>SSH remoto</option>
     </select>
   </div>
@@ -911,7 +909,7 @@ var editDBTmpl = template.Must(template.New("edit-db").Funcs(funcs).Parse(`
   <div>Tipo de destino:
     <select name="dest_type" class="gb-dest-type" onchange="gbToggleSSHFields(this)">
       <option value="local" {{if eq .Job.DestType "local"}}selected{{end}}>Local</option>
-      <option value="nas" {{if eq .Job.DestType "nas"}}selected{{end}}>NAS (montado)</option>
+      {{if eq .Job.DestType "nas"}}<option value="nas" selected>NAS (montado — tipo antigo, idêntico a Local)</option>{{end}}
       <option value="ssh" {{if eq .Job.DestType "ssh"}}selected{{end}}>SSH remoto</option>
     </select>
   </div>
