@@ -16,8 +16,8 @@ package main
 import (
 	"crypto/rand"
 	"crypto/subtle"
-	"encoding/hex"
 	_ "embed"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"os/exec"
@@ -26,8 +26,8 @@ import (
 
 	"github.com/getlantern/systray"
 
-	"github.com/cleber/gobackup/internal/winagentcore"
 	"github.com/cleber/gobackup/internal/webui/assets"
+	"github.com/cleber/gobackup/internal/winagentcore"
 )
 
 //go:embed icons/red.ico

@@ -11,6 +11,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -126,6 +127,15 @@ type gbServiceHandler struct{}
 func (h *gbServiceHandler) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (bool, uint32) {
 	const accepted = svc.AcceptStop | svc.AcceptShutdown
 	changes <- svc.Status{State: svc.StartPending}
+
+	// A service has no console, so without this every log line the agent
+	// writes -- including why a scheduled backup did not run -- would go
+	// nowhere. Not fatal: an agent that backs up but cannot log beats one
+	// that refuses to start over a logging problem.
+	if err := winagentcore.SetupFileLogging(); err != nil {
+		winagentcore.SaveStatus(winagentcore.TickResult{Err: err})
+	}
+	log.Printf("gobackup: serviço iniciado; log em %s", winagentcore.LogPath())
 
 	stop := make(chan struct{})
 	go winagentcore.RunLoop(time.Second, func(res winagentcore.TickResult) {
