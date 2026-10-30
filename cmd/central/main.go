@@ -68,10 +68,27 @@ func cmdServe(args []string) {
 	tlsKey := fs.String("tls-key", "", "TLS key path (auto-generated self-signed if omitted)")
 	tlsHosts := fs.String("tls-hosts", "localhost,127.0.0.1", "comma-separated hostnames/IPs for the self-signed cert's SAN (must include the IP agents will connect to)")
 	noTLS := fs.Bool("no-tls", false, "serve plain HTTP instead of HTTPS (NOT recommended)")
+	autoMigrate := fs.Bool("auto-migrate", true, "apply pending database migrations before serving")
 	fs.Parse(args)
 
 	if *connString == "" {
 		fatal("missing -db")
+	}
+
+	// Apply pending migrations before serving. Deploying new code without
+	// running `migrate` leaves the binary talking to an older schema, and
+	// the failure surfaces later, in whichever feature touches the
+	// missing column -- a real incident here: a deploy went out and the
+	// database stayed one version behind unnoticed.
+	//
+	// Migrations are idempotent, so this is a no-op on an up-to-date
+	// database. If they FAIL the process refuses to start: serving
+	// against a schema the code does not expect corrupts data quietly,
+	// while a container that will not come up is noticed immediately.
+	if *autoMigrate {
+		if err := db.Migrate(*connString); err != nil {
+			fatal(fmt.Sprintf("migrate on startup: %v (use -auto-migrate=false to start anyway)", err))
+		}
 	}
 
 	store, err := db.Connect(context.Background(), *connString)

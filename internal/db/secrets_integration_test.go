@@ -49,6 +49,25 @@ func storeDeTeste(t *testing.T) (*Store, uuid.UUID) {
 	return s, agentID
 }
 
+// serve now migrates on every startup, so a second run against an
+// already-migrated database must be a silent no-op. If migrations ever
+// stop being idempotent, every restart becomes a failed boot.
+func TestMigrarDuasVezesNaoQuebra(t *testing.T) {
+	conn := os.Getenv("GOBACKUP_TEST_DB")
+	if conn == "" {
+		t.Skip("defina GOBACKUP_TEST_DB para rodar os testes com banco real")
+	}
+	if err := Migrate(conn); err != nil {
+		t.Fatalf("primeira migração: %v", err)
+	}
+	if err := Migrate(conn); err != nil {
+		t.Fatalf("segunda migração deveria ser inofensiva: %v", err)
+	}
+	if err := Migrate(conn); err != nil {
+		t.Fatalf("terceira migração: %v", err)
+	}
+}
+
 func TestSenhaGuardadaVoltaInteira(t *testing.T) {
 	s, agentID := storeDeTeste(t)
 	ctx := context.Background()
