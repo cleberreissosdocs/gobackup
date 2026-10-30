@@ -252,26 +252,33 @@ func (s *Store) CreateFileJob(ctx context.Context, tenantID, agentID uuid.UUID, 
 
 // CreateDBConnection inserts (or reuses, by name) a db_connections row for
 // job_kind=database backups.
-func (s *Store) CreateDBConnection(ctx context.Context, agentID uuid.UUID, name string, engine core.DBEngine, host string, port int, username, passwordRef, databaseName, sqlitePath string) (uuid.UUID, error) {
+func (s *Store) CreateDBConnection(ctx context.Context, agentID uuid.UUID, name string, engine core.DBEngine, host string, port int, username, password, databaseName, sqlitePath string) (uuid.UUID, error) {
+	sealed, err := s.EncryptDBPassword(ctx, password)
+	if err != nil {
+		return uuid.Nil, err
+	}
 	var id uuid.UUID
-	err := s.Pool.QueryRow(ctx, `
-		INSERT INTO db_connections (agent_id, name, engine, host, port, username, password_ref, database_name, sqlite_path)
+	err = s.Pool.QueryRow(ctx, `
+		INSERT INTO db_connections (agent_id, name, engine, host, port, username, password_enc, database_name, sqlite_path)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT DO NOTHING
 		RETURNING id
-	`, agentID, name, string(engine), host, port, username, passwordRef, databaseName, sqlitePath).Scan(&id)
+	`, agentID, name, string(engine), host, port, username, sealed, databaseName, sqlitePath).Scan(&id)
 	if err != nil {
 		err = s.Pool.QueryRow(ctx, `SELECT id FROM db_connections WHERE agent_id=$1 AND name=$2`, agentID, name).Scan(&id)
 		if err != nil {
 			return uuid.Nil, fmt.Errorf("create db connection: %w", err)
 		}
 	}
-	// keep the connection details current if the same name is reused
+	// keep the connection details current if the same name is reused.
+	// password_enc is only overwritten when a password was actually
+	// supplied, so reusing a connection name does not wipe the stored one.
 	_, _ = s.Pool.Exec(ctx, `
 		UPDATE db_connections
-		SET engine=$1, host=$2, port=$3, username=$4, database_name=$5, sqlite_path=$6
+		SET engine=$1, host=$2, port=$3, username=$4, database_name=$5, sqlite_path=$6,
+		    password_enc = COALESCE($8, password_enc)
 		WHERE id=$7
-	`, string(engine), host, port, username, databaseName, sqlitePath, id)
+	`, string(engine), host, port, username, databaseName, sqlitePath, id, sealed)
 	return id, nil
 }
 
@@ -573,16 +580,23 @@ func (s *Store) UpdateFileJobByID(ctx context.Context, jobID uuid.UUID, name, so
 
 // UpdateDatabaseJobByID overwrites an existing database job's definition
 // (and its underlying db_connections row) in place.
-func (s *Store) UpdateDatabaseJobByID(ctx context.Context, jobID uuid.UUID, name string, engine core.DBEngine, host string, port int, username, databaseName, sqlitePath string, compression core.Compression, destPath, destType, sshHost string, sshPort int, sshUser, sshKeyPath, cron string, retentionDays int, enabled bool) error {
+// A BLANK password keeps the stored one, matching the convention the
+// forms already advertise ("deixe em branco para manter a senha salva").
+func (s *Store) UpdateDatabaseJobByID(ctx context.Context, jobID uuid.UUID, name string, engine core.DBEngine, host string, port int, username, password, databaseName, sqlitePath string, compression core.Compression, destPath, destType, sshHost string, sshPort int, sshUser, sshKeyPath, cron string, retentionDays int, enabled bool) error {
 	var connID uuid.UUID
 	err := s.Pool.QueryRow(ctx, `SELECT db_connection_id FROM backup_jobs WHERE id=$1 AND job_kind='database'`, jobID).Scan(&connID)
 	if err != nil {
 		return fmt.Errorf("update database job: lookup connection: %w", err)
 	}
+	sealed, err := s.EncryptDBPassword(ctx, password)
+	if err != nil {
+		return err
+	}
 	if _, err := s.Pool.Exec(ctx, `
-		UPDATE db_connections SET name=$1, engine=$2, host=$3, port=$4, username=$5, database_name=$6, sqlite_path=$7
+		UPDATE db_connections SET name=$1, engine=$2, host=$3, port=$4, username=$5, database_name=$6, sqlite_path=$7,
+		    password_enc = COALESCE($9, password_enc)
 		WHERE id=$8
-	`, name+"-connection", string(engine), host, port, username, databaseName, sqlitePath, connID); err != nil {
+	`, name+"-connection", string(engine), host, port, username, databaseName, sqlitePath, connID, sealed); err != nil {
 		return fmt.Errorf("update database job: connection: %w", err)
 	}
 	if _, err := s.Pool.Exec(ctx, `

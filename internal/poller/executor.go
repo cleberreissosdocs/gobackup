@@ -184,7 +184,8 @@ func (e *Executor) createJob(ctx context.Context, payload map[string]any) (map[s
 			compression = string(core.CompressionGzip)
 		}
 
-		connID, err := e.Store.CreateDBConnection(ctx, e.AgentID, name+"-connection", eng, host, port, username, "", database, sqlitePath)
+		password, _ := payload["password"].(string)
+		connID, err := e.Store.CreateDBConnection(ctx, e.AgentID, name+"-connection", eng, host, port, username, password, database, sqlitePath)
 		if err != nil {
 			return nil, err
 		}
@@ -307,7 +308,8 @@ func (e *Executor) updateJob(ctx context.Context, payload map[string]any) (map[s
 		if database == "" && eng != core.EngineSQLite {
 			database = core.AllDatabasesSentinel
 		}
-		if err := e.Store.UpdateDatabaseJobByID(ctx, jobID, name, eng, host, port, username, database, sqlitePath,
+		password, _ := payload["password"].(string)
+		if err := e.Store.UpdateDatabaseJobByID(ctx, jobID, name, eng, host, port, username, password, database, sqlitePath,
 			core.Compression(compression), destPath, destType, sshHost, sshPort, sshUser, sshKeyPath, cron, payloadInt(payload, "retention_days", 0), enabled); err != nil {
 			return nil, err
 		}

@@ -132,6 +132,22 @@ func (e *Engine) runDB(ctx context.Context, jobID uuid.UUID, jobIDStr string, tr
 		return
 	}
 
+	// An empty password means "use the one saved with the job". That is
+	// the ONLY path a scheduled run has: the scheduler passes "", and
+	// before passwords were stored those runs silently went out
+	// unauthenticated and failed against any engine requiring a login.
+	//
+	// A password passed in still wins, so a one-off run can use different
+	// credentials without touching what is saved.
+	if password == "" {
+		stored, err := e.Store.GetDBJobPassword(ctx, jobID)
+		if err != nil {
+			e.fail(ctx, jobIDStr, err)
+			return
+		}
+		password = stored
+	}
+
 	execID, err := e.Store.StartExecution(ctx, jobID, trigger)
 	if err != nil {
 		e.fail(ctx, jobIDStr, err)

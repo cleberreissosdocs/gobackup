@@ -82,7 +82,7 @@ func (r *LocalRunner) CreateDBJob(ctx context.Context, req DBJobRequest) (string
 	dbName, compression := dbDefaults(req)
 	eng := core.DBEngine(req.Engine)
 
-	connID, err := r.Store.CreateDBConnection(ctx, r.AgentID, req.Name+"-connection", eng, req.Host, req.Port, req.Username, "", dbName, req.SQLitePath)
+	connID, err := r.Store.CreateDBConnection(ctx, r.AgentID, req.Name+"-connection", eng, req.Host, req.Port, req.Username, req.Password, dbName, req.SQLitePath)
 	if err != nil {
 		return "", err
 	}
@@ -150,7 +150,7 @@ func (r *LocalRunner) UpdateDBJob(ctx context.Context, jobIDStr string, req DBJo
 	}
 	dbName, compression := dbDefaults(req)
 	return r.Store.UpdateDatabaseJobByID(ctx, jobID, req.Name, core.DBEngine(req.Engine), req.Host, req.Port, req.Username,
-		dbName, req.SQLitePath, core.Compression(compression), req.DestPath, req.DestType, req.SSHHost, req.SSHPort, req.SSHUser, req.SSHKey,
+		req.Password, dbName, req.SQLitePath, core.Compression(compression), req.DestPath, req.DestType, req.SSHHost, req.SSHPort, req.SSHUser, req.SSHKey,
 		req.Cron, req.RetentionDays, req.Enabled)
 }
 
