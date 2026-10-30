@@ -334,10 +334,13 @@ func (s *Store) ListAgentsNeedingOfflineAlert(ctx context.Context) ([]AgentView,
 
 // AgentView is a read model for the Central dashboard.
 type AgentView struct {
-	ID         uuid.UUID
-	Name       string
-	Hostname   string
-	Status     string
+	ID       uuid.UUID
+	Name     string
+	Hostname string
+	Status   string
+	// Platform is the OS the agent reported ("windows"/"linux"), or ""
+	// when it has never reported one (an older agent build).
+	Platform   string
 	LastSeenAt *time.Time
 }
 
@@ -389,7 +392,7 @@ func (s *Store) RenameAgent(ctx context.Context, agentID uuid.UUID, name string)
 
 func (s *Store) ListAgents(ctx context.Context) ([]AgentView, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT id, name, hostname, status, last_seen_at
+		SELECT id, name, hostname, status, last_seen_at, platform
 		FROM agents
 		ORDER BY name
 	`)
@@ -401,7 +404,7 @@ func (s *Store) ListAgents(ctx context.Context) ([]AgentView, error) {
 	var out []AgentView
 	for rows.Next() {
 		var a AgentView
-		if err := rows.Scan(&a.ID, &a.Name, &a.Hostname, &a.Status, &a.LastSeenAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.Hostname, &a.Status, &a.LastSeenAt, &a.Platform); err != nil {
 			return nil, fmt.Errorf("scan agent: %w", err)
 		}
 		if a.LastSeenAt == nil || time.Since(*a.LastSeenAt) > staleAfter {

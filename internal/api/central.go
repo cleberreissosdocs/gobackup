@@ -858,8 +858,42 @@ func (s *Server) handleDeleteNotificationChannel(w http.ResponseWriter, r *http.
 	s.renderNotificationsPage(w, r, "Canal removido.", false)
 }
 
+// platformIcon renders a small inline SVG marking an agent's OS next to
+// its name on the dashboard.
+//
+// Inline SVG rather than an emoji (🐧/🪟) on purpose: emoji rendering
+// depends on a font being installed, and the penguin in particular falls
+// back to an empty box on plenty of systems — a decoration that sometimes
+// renders as a missing-glyph square is worse than none. Inline SVG also
+// avoids an extra asset request and inherits the row's colour.
+//
+// An unknown platform (an agent on a build that predates platform
+// reporting) gets NOTHING rather than a question mark: it would be the
+// most visually prominent marker in the table while meaning the least.
+func platformIcon(platform string) template.HTML {
+	const style = `width:1em;height:1em;vertical-align:-0.15em;margin-right:0.45em;flex:none;`
+	switch platform {
+	case "windows":
+		// The four-pane Windows logo.
+		return template.HTML(`<svg viewBox="0 0 16 16" style="` + style + `" fill="#00A4EF" aria-hidden="true"><title>Windows</title>` +
+			`<path d="M0 2.4l6.5-.9v6.1H0V2.4zm7.3-1L16 0v7.6H7.3V1.4zM0 8.4h6.5v6.1L0 13.6V8.4zm7.3 0H16V16l-8.7-1.2V8.4z"/></svg>`)
+	case "linux":
+		// A simplified Tux silhouette: body, flippers, beak and feet.
+		return template.HTML(`<svg viewBox="0 0 16 16" style="` + style + `" aria-hidden="true"><title>Linux</title>` +
+			`<path fill="#1a1a1a" d="M8 .8c2 0 3.3 1.6 3.3 3.6 0 .8.3 1.4.8 2.2.9 1.3 1.6 2.6 1.6 4 0 2.4-2.1 4.1-5.7 4.1S2.3 13 2.3 10.6c0-1.4.7-2.7 1.6-4 .5-.8.8-1.4.8-2.2C4.7 2.4 6 .8 8 .8z"/>` +
+			`<ellipse cx="8" cy="11" rx="3" ry="3.3" fill="#fff"/>` +
+			`<path fill="#f5a623" d="M8 5.6c.9 0 1.7.5 1.7 1s-.8 1-1.7 1-1.7-.5-1.7-1 .8-1 1.7-1z"/>` +
+			`<ellipse cx="6.7" cy="4.2" rx=".85" ry="1.05" fill="#fff"/><ellipse cx="9.3" cy="4.2" rx=".85" ry="1.05" fill="#fff"/>` +
+			`<circle cx="6.9" cy="4.3" r=".45" fill="#1a1a1a"/><circle cx="9.1" cy="4.3" r=".45" fill="#1a1a1a"/>` +
+			`<path fill="#f5a623" d="M5.6 14.1c-.6.5-1.6.6-1.8.2-.2-.4.5-1 1.2-1.4zM10.4 14.1c.6.5 1.6.6 1.8.2.2-.4-.5-1-1.2-1.4z"/></svg>`)
+	default:
+		return ""
+	}
+}
+
 var dashboardTmpl = template.Must(template.New("dashboard").Funcs(template.FuncMap{
 	"humanizeCron": webui.HumanizeCron,
+	"platformIcon": platformIcon,
 }).Parse(`<!doctype html>
 <html>
 <head>
@@ -890,7 +924,7 @@ tr.gb-row-offline td { color: var(--gb-text-faint); }
 <tr><th>Agente</th><th>Hostname</th><th>Status</th><th>Último heartbeat</th><th>Saúde</th><th></th></tr>
 {{range .Agents}}
 <tr>
-  <td><a href="/agents/{{.ID}}/timeline" title="ver linha do tempo de backups deste servidor">{{.Name}}</a></td>
+  <td><a href="/agents/{{.ID}}/timeline" title="ver linha do tempo de backups deste servidor" style="display:inline-flex; align-items:center;">{{platformIcon .Platform}}{{.Name}}</a></td>
   <td>{{.Hostname}}</td>
   <td class="{{.Status}}">{{.Status}}</td>
   <td>{{.LastSeen}}</td>
@@ -958,6 +992,7 @@ type dashboardAgentView struct {
 	Name       string
 	Hostname   string
 	Status     string
+	Platform   string
 	LastSeen   string
 	HasFailure bool
 }
@@ -1193,6 +1228,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			Name:       a.Name,
 			Hostname:   a.Hostname,
 			Status:     a.Status,
+			Platform:   a.Platform,
 			LastSeen:   lastSeen,
 			HasFailure: health[a.ID],
 		})
@@ -1226,7 +1262,9 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-var healthDashboardTmpl = template.Must(template.New("health-dashboard").Parse(`<!doctype html>
+var healthDashboardTmpl = template.Must(template.New("health-dashboard").Funcs(template.FuncMap{
+	"platformIcon": platformIcon,
+}).Parse(`<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -1297,7 +1335,7 @@ h1 { margin: 0 0 0.3rem; font-weight: 700; letter-spacing: -0.02em; }
 <div class="grid">
 {{range .Cards}}
 <div class="card">
-  <h2>{{.Name}}</h2>
+  <h2 style="display:flex; align-items:center; justify-content:center;">{{platformIcon .Platform}}{{.Name}}</h2>
   <div class="hostname">{{.Hostname}}</div>
   <div class="indicators">
     <div class="indicator">
@@ -1322,6 +1360,7 @@ h1 { margin: 0 0 0.3rem; font-weight: 700; letter-spacing: -0.02em; }
 type healthCardView struct {
 	Name       string
 	Hostname   string
+	Platform   string
 	Online     bool
 	LastSeen   string
 	HasFailure bool
@@ -1352,6 +1391,7 @@ func (s *Server) handleHealthDashboard(w http.ResponseWriter, r *http.Request) {
 		cards = append(cards, healthCardView{
 			Name:       a.Name,
 			Hostname:   a.Hostname,
+			Platform:   a.Platform,
 			Online:     a.Status == "online",
 			LastSeen:   lastSeen,
 			HasFailure: health[a.ID],
