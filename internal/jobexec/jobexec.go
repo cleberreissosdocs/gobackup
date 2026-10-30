@@ -50,14 +50,20 @@ func (e *Engine) Start(ctx context.Context, jobIDStr string, trigger core.Execut
 		return "", fmt.Errorf("tipo de job desconhecido: %s", kind)
 	}
 
+	// Reserve BEFORE spawning, so two run requests racing each other
+	// cannot both start the same job (see tryRegister).
+	ctx, setProc, ok := e.tryRegister(jobIDStr, kind)
+	if !ok {
+		return "", fmt.Errorf("esta tarefa já está em execução")
+	}
+
 	e.Registry.Set(jobIDStr, progress.State{Status: "running", Percent: 0})
-	go e.run(jobID, kind, trigger, password)
+	go e.run(ctx, setProc, jobID, kind, trigger, password)
 	return "", nil
 }
 
-func (e *Engine) run(jobID uuid.UUID, kind string, trigger core.ExecutionTrigger, password string) {
+func (e *Engine) run(ctx context.Context, setProc func(*os.Process), jobID uuid.UUID, kind string, trigger core.ExecutionTrigger, password string) {
 	jobIDStr := jobID.String()
-	ctx, setProc := e.register(jobIDStr, kind)
 	defer e.unregister(jobIDStr)
 
 	switch kind {

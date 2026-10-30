@@ -93,6 +93,30 @@ func (e *Executor) registerControl(parent context.Context, jobID, kind string) (
 	return ctx, jc
 }
 
+// tryReserve claims jobID as running, returning false when it is ALREADY
+// running. Check and insert happen under one lock hold, and callers must
+// use this SYNCHRONOUSLY before spawning the job goroutine: reserving
+// inside the goroutine would let two run requests arriving together both
+// pass the check before either registered — the exact double execution
+// this exists to prevent.
+//
+// The reservation is a placeholder; registerControl replaces it with the
+// real control (cancel/pause) once the goroutine starts. Cancel/Pause
+// asked for in that tiny window report "not running", which is accurate:
+// there is no process to signal yet.
+func (e *Executor) tryReserve(jobID string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.controls == nil {
+		e.controls = map[string]*JobControl{}
+	}
+	if _, already := e.controls[jobID]; already {
+		return false
+	}
+	e.controls[jobID] = &JobControl{}
+	return true
+}
+
 func (e *Executor) unregisterControl(jobID string) {
 	e.mu.Lock()
 	delete(e.controls, jobID)

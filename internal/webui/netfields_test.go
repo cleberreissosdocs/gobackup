@@ -5,6 +5,39 @@ import (
 	"testing"
 )
 
+// A running job's "Executar" button must be disabled. This is the
+// cosmetic half of double-run prevention — the authoritative half is the
+// agent refusing a second run (see winagentcore's TestTryReserve), because
+// a disabled button stops an accidental double-click but not a direct
+// POST, nor a schedule firing during a manual run.
+func TestRunButtonDisabledWhileRunning(t *testing.T) {
+	render := func(status string) string {
+		t.Helper()
+		var b strings.Builder
+		err := homeTmpl.Execute(&b, map[string]any{
+			"Name": "agente", "Base": "", "CSRF": "t", "Platform": "linux",
+			"Activity": nil,
+			"Jobs":     []JobSummary{{ID: "j1", Name: "tarefa", Kind: "files", Status: status}},
+		})
+		if err != nil {
+			t.Fatalf("home não renderizou com status=%q: %v", status, err)
+		}
+		return b.String()
+	}
+
+	running := render("running")
+	if !strings.Contains(running, "<button type=\"submit\" disabled") {
+		t.Error("com a tarefa executando, o botão Executar deveria estar desabilitado")
+	}
+
+	for _, status := range []string{"success", "failed", ""} {
+		out := render(status)
+		if strings.Contains(out, "<button type=\"submit\" disabled") {
+			t.Errorf("status %q: o botão Executar não deveria estar desabilitado", status)
+		}
+	}
+}
+
 // renderFileForms executes the two file-job forms (create lives inside the
 // home page, edit is its own template) with the given platform and returns
 // both outputs. Rendering them at all is itself part of the check: a

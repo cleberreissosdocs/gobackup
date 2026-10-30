@@ -334,6 +334,9 @@ func (e *Executor) dispatch(cmd poller.QueuedCommand) (map[string]any, error) {
 		if !found {
 			return nil, fmt.Errorf("job not found: %s", id)
 		}
+		if !e.tryReserve(id) {
+			return nil, fmt.Errorf("esta tarefa já está em execução")
+		}
 		if j.Kind == "database" {
 			go e.runDBJob(j, password)
 		} else {
@@ -447,6 +450,13 @@ func (e *Executor) connectJobShares(j Job) error {
 func (e *Executor) runFileJob(j Job) {
 	startedAt := time.Now()
 	e.Registry.Set(j.ID, RunState{Status: "running", Percent: 0, Message: "iniciando..."})
+	// Persist "running" too, not just the in-memory registry: Central
+	// reads a job's state from last_status in the list_jobs response, so
+	// without this a Windows agent's running job never shows as
+	// "Executando" (and its progress page is never linked) no matter how
+	// long it runs. The Linux agent gets this for free because it records
+	// a job_executions row at start.
+	_ = e.Store.MarkRunning(j.ID)
 
 	ctx, jc := e.registerControl(context.Background(), j.ID, "files")
 	defer e.unregisterControl(j.ID)
@@ -519,6 +529,7 @@ func (e *Executor) runFileJob(j Job) {
 // engines).
 func (e *Executor) runDBJob(j Job, password string) {
 	startedAt := time.Now()
+	_ = e.Store.MarkRunning(j.ID)
 	e.Registry.Set(j.ID, RunState{Status: "running", Percent: 0, Message: "gerando dump..."})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)

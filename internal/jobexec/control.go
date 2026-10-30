@@ -42,23 +42,33 @@ type jobControl struct {
 	paused bool
 }
 
-// register starts tracking jobIDStr as running and returns a cancellable
-// context plus a setter the caller invokes once the underlying rsync
-// process has actually started (file jobs only — nil-safe to call for
-// database jobs, which just won't get a pauser).
-func (e *Engine) register(jobIDStr, kind string) (context.Context, func(*os.Process)) {
+// tryRegister starts tracking jobIDStr as running and returns a
+// cancellable context plus a setter the caller invokes once the underlying
+// rsync process has actually started (file jobs only — nil-safe to call
+// for database jobs, which just won't get a pauser).
+//
+// ok is false when this job is ALREADY running, which is how a second
+// execution is refused. The check and the insert happen under one lock
+// hold, and the caller must invoke this SYNCHRONOUSLY before spawning the
+// job goroutine: reserving inside the goroutine instead would let two
+// run requests arriving together both pass the check before either
+// registered, which is precisely the double-execution this prevents.
+func (e *Engine) tryRegister(jobIDStr, kind string) (context.Context, func(*os.Process), bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.running == nil {
+		e.running = map[string]*jobControl{}
+	}
+	if _, already := e.running[jobIDStr]; already {
+		return nil, nil, false
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	jc := &jobControl{cancel: cancel, kind: kind}
 	if kind == "files" {
 		jc.pauser = &pauser{}
 	}
-	e.mu.Lock()
-	if e.running == nil {
-		e.running = map[string]*jobControl{}
-	}
 	e.running[jobIDStr] = jc
-	e.mu.Unlock()
-	return ctx, jc.pauser.setProcess
+	return ctx, jc.pauser.setProcess, true
 }
 
 func (e *Engine) unregister(jobIDStr string) {

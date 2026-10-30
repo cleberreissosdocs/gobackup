@@ -264,6 +264,60 @@ func (s *JobStore) UpdateStatus(id, status, errMsg string, bytesWritten int64, f
 	return fmt.Errorf("job not found: %s", id)
 }
 
+// MarkRunning flags a job as currently executing, WITHOUT appending a
+// history entry or touching the previous run's result figures.
+//
+// It is deliberately not UpdateStatus("running", ...): that appends a
+// HistoryEntry with a FinishedAt of "now", which would put a bogus
+// zero-length bar on the dashboard timeline for a job that has merely
+// started. Only terminal states belong in history.
+func (s *JobStore) MarkRunning(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f, err := s.load()
+	if err != nil {
+		return err
+	}
+	for i, existing := range f.Jobs {
+		if existing.ID == id {
+			f.Jobs[i].LastStatus = "running"
+			f.Jobs[i].LastError = ""
+			return s.save(f)
+		}
+	}
+	return fmt.Errorf("job not found: %s", id)
+}
+
+// ResetStaleRunning clears any job left marked "running" from a previous
+// process lifetime, and reports how many it fixed.
+//
+// Nothing survives a crash or a service restart mid-backup: the goroutine
+// that would have written a terminal status is gone, but the "running"
+// flag persisted in jobs.json. Left alone, Central would show that job as
+// executing forever AND the UI would keep its "Executar" button disabled
+// permanently — a stuck flag that no amount of retrying clears. Must be
+// called once at startup, before the first heartbeat.
+func (s *JobStore) ResetStaleRunning() (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f, err := s.load()
+	if err != nil {
+		return 0, err
+	}
+	fixed := 0
+	for i, j := range f.Jobs {
+		if j.LastStatus == "running" {
+			f.Jobs[i].LastStatus = "failed"
+			f.Jobs[i].LastError = "interrompida: o agente foi reiniciado durante a execução"
+			fixed++
+		}
+	}
+	if fixed == 0 {
+		return 0, nil
+	}
+	return fixed, s.save(f)
+}
+
 // ListHistory returns every history entry recorded since the given time,
 // oldest first.
 func (s *JobStore) ListHistory(since time.Time) ([]HistoryEntry, error) {

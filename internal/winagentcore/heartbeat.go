@@ -6,6 +6,7 @@ package winagentcore
 
 import (
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/cleber/gobackup/internal/poller"
@@ -91,6 +92,13 @@ func (a *Agent) Tick(pendingResults *[]poller.CommandResult) TickResult {
 // the icon/menu). Blocks until stop is closed.
 func RunLoop(interval time.Duration, onTick func(TickResult), stop <-chan struct{}) {
 	agent := NewAgent()
+	// Clear any job still flagged "running" from a previous process
+	// lifetime BEFORE the first heartbeat, so Central never sees a job
+	// that died with the service reported as still executing (which would
+	// also keep its "Executar" button disabled forever).
+	if n, err := agent.Store.ResetStaleRunning(); err == nil && n > 0 {
+		log.Printf("gobackup: %d tarefa(s) estavam marcadas como em execução de uma sessão anterior; marcadas como interrompidas", n)
+	}
 	var pending []poller.CommandResult
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

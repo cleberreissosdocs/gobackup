@@ -739,7 +739,11 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
     <form method="post" action="{{$.Base}}/jobs/{{.ID}}/run" style="display:inline-flex; gap:0.5rem; align-items:center; margin-left:0.8rem">
       <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
       {{if eq .Kind "database"}}<input type="password" name="password" placeholder="senha (se necessário)">{{end}}
+      {{if eq .Status "running"}}
+      <button type="submit" disabled title="Esta tarefa já está em execução">Executar</button>
+      {{else}}
       <button type="submit">Executar</button>
+      {{end}}
     </form>
     <span style="display:inline-block; width:1.5rem;"></span><span style="border-left:1px solid #444; padding-left:1rem;">
     <form method="post" action="{{$.Base}}/jobs/{{.ID}}/delete" style="display:inline" onsubmit="return confirm('Apagar a tarefa \'{{.Name}}\'? Isso remove a definição e o histórico de execuções (os arquivos já copiados em execuções anteriores NÃO são apagados).');">
