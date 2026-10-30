@@ -37,6 +37,18 @@ type Job struct {
 	DeleteExtraneous bool     `json:"delete_extraneous,omitempty"`
 	Excludes         []string `json:"excludes,omitempty"`
 
+	// Credentials for a network (SMB/UNC) source or destination, used
+	// because this agent runs as a service and therefore cannot see a
+	// drive letter some logged-in user mapped (see netauth_windows.go).
+	//
+	// NetworkPasswordEnc is DPAPI-protected at machine scope and is the
+	// ONLY form the password ever takes on disk -- there is deliberately
+	// no plaintext field, so no code path can accidentally serialize one
+	// into jobs.json. It must also never be echoed back to Central: the
+	// edit form follows the project's blank-keeps-the-secret convention.
+	NetworkUser        string `json:"network_user,omitempty"`
+	NetworkPasswordEnc string `json:"network_password_enc,omitempty"`
+
 	// --- database fields ---
 	Engine        string `json:"engine,omitempty"`
 	Host          string `json:"host,omitempty"`

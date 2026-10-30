@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cleber/gobackup/internal/core"
@@ -246,12 +247,17 @@ func fileJobFromForm(r *http.Request) FileJobRequest {
 		// One exclusion pattern per line in the textarea; blank lines and
 		// "#" comments are dropped so a user can annotate the list.
 		Excludes: core.ParseExcludePatterns(r.FormValue("excludes")),
-		DestType: r.FormValue("dest_type"),
-		SSHHost:  r.FormValue("ssh_host"),
-		SSHUser:  r.FormValue("ssh_user"),
-		SSHKey:   r.FormValue("ssh_key"),
-		Cron:     r.FormValue("cron"),
-		Enabled:  r.FormValue("enabled") == "on",
+		// Blank password means "keep the one already stored" on an edit
+		// (and "none" on a create) — never "clear it". See the field doc
+		// on FileJobRequest.
+		NetworkUser:     strings.TrimSpace(r.FormValue("network_user")),
+		NetworkPassword: r.FormValue("network_password"),
+		DestType:        r.FormValue("dest_type"),
+		SSHHost:         r.FormValue("ssh_host"),
+		SSHUser:         r.FormValue("ssh_user"),
+		SSHKey:          r.FormValue("ssh_key"),
+		Cron:            r.FormValue("cron"),
+		Enabled:         r.FormValue("enabled") == "on",
 	}
 	req.SSHPort, _ = strconv.Atoi(r.FormValue("ssh_port"))
 	return req

@@ -619,6 +619,22 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
       Linhas começando com <code>#</code> são comentários.
     </small>
   </div>
+  {{if ne .Platform "linux"}}
+  <fieldset class="gb-netcred" style="margin:0.6rem 0; padding:0.6rem 0.8rem; border:1px solid #d7dde5; border-radius:6px;">
+    <legend style="font-size:0.9rem; padding:0 0.4rem;">
+      Pasta de rede (SMB){{if eq .Platform ""}} — somente agentes Windows{{end}}
+    </legend>
+    <small style="display:block; color:#555; margin-bottom:0.5rem;">
+      Preencha só se a origem ou o destino acima for um caminho de rede, digitado
+      como <code>\\servidor\compartilhamento</code> (ex.: <code>\\192.168.8.250\repositorio\2026</code>).
+      <strong>Letra de unidade mapeada (Z:) não funciona aqui</strong>: o backup roda como
+      serviço do Windows, e unidades mapeadas existem só para o usuário que fez login.
+      Use o caminho de rede e as credenciais abaixo.
+    </small>
+    <div>Usuário: <input type="text" name="network_user" value="" autocomplete="off" placeholder="ex.: Administrador"></div>
+    <div>Senha: <input type="password" name="network_password" autocomplete="new-password" placeholder="senha do compartilhamento"></div>
+  </fieldset>
+  {{end}}
   <div>Tipo de destino:
     <select name="dest_type" class="gb-dest-type" onchange="gbToggleSSHFields(this)">
       <option value="local">Local</option>
@@ -806,6 +822,22 @@ var editFileTmpl = template.Must(template.New("edit-file").Funcs(funcs).Parse(`
       Linhas começando com <code>#</code> são comentários.
     </small>
   </div>
+  {{if ne .Platform "linux"}}
+  <fieldset class="gb-netcred" style="margin:0.6rem 0; padding:0.6rem 0.8rem; border:1px solid #d7dde5; border-radius:6px;">
+    <legend style="font-size:0.9rem; padding:0 0.4rem;">
+      Pasta de rede (SMB){{if eq .Platform ""}} — somente agentes Windows{{end}}
+    </legend>
+    <small style="display:block; color:#555; margin-bottom:0.5rem;">
+      Preencha só se a origem ou o destino acima for um caminho de rede, digitado
+      como <code>\\servidor\compartilhamento</code> (ex.: <code>\\192.168.8.250\repositorio\2026</code>).
+      <strong>Letra de unidade mapeada (Z:) não funciona aqui</strong>: o backup roda como
+      serviço do Windows, e unidades mapeadas existem só para o usuário que fez login.
+      Use o caminho de rede e as credenciais abaixo.
+    </small>
+    <div>Usuário: <input type="text" name="network_user" value="{{.Job.NetworkUser}}" autocomplete="off" placeholder="ex.: Administrador"></div>
+    <div>Senha: <input type="password" name="network_password" autocomplete="new-password" placeholder="{{if .Job.HasNetworkPassword}}deixe em branco para manter a atual{{else}}senha do compartilhamento{{end}}"></div>
+  </fieldset>
+  {{end}}
   <div>Tipo de destino:
     <select name="dest_type" class="gb-dest-type" onchange="gbToggleSSHFields(this)">
       <option value="local" {{if eq .Job.DestType "local"}}selected{{end}}>Local</option>

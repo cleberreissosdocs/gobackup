@@ -123,6 +123,8 @@ func fileJobPayload(req FileJobRequest) map[string]any {
 		"link_dest":         req.LinkDest,
 		"delete_extraneous": req.DeleteExtraneous,
 		"excludes":          req.Excludes,
+		"network_user":      req.NetworkUser,
+		"network_password":  req.NetworkPassword,
 		"destination_type":  req.DestType,
 		"ssh_host":          req.SSHHost,
 		"ssh_port":          req.SSHPort,
@@ -237,6 +239,9 @@ func (r *CentralRunner) GetFileJob(ctx context.Context, jobID string) (FileJobRe
 		Name: strField(m, "name"), Source: strField(m, "source_path"), Dest: strField(m, "destination_path"),
 		BackupType: strField(m, "backup_type"), LinkDest: strField(m, "link_dest"), DeleteExtraneous: boolField(m, "delete_extraneous"),
 		Excludes: strListField(m, "excludes"), DestType: strField(m, "destination_type"),
+		// No "network_password" here, deliberately: the agent never sends
+		// it back, and the form must not render a stored secret.
+		NetworkUser: strField(m, "network_user"), HasNetworkPassword: boolField(m, "has_network_password"),
 		SSHHost: strField(m, "ssh_host"), SSHPort: intField(m, "ssh_port"), SSHUser: strField(m, "ssh_user"), SSHKey: strField(m, "ssh_key_path"),
 		Cron: strField(m, "cron"), Enabled: boolField(m, "enabled"),
 	}, nil

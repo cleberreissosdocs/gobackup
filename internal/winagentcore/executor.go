@@ -118,6 +118,19 @@ func (e *Executor) Execute(cmd poller.QueuedCommand) poller.CommandResult {
 	return poller.CommandResult{CommandID: cmd.ID, Status: "acked", Result: result}
 }
 
+// encryptOrEmpty protects a secret for storage, returning "" when there
+// is nothing to store OR when encryption fails. It deliberately has no
+// plaintext fallback: a job whose credential failed to encrypt must fail
+// later with a clear "credential could not be read" error rather than
+// quietly persisting a readable password in jobs.json.
+func encryptOrEmpty(plaintext string) string {
+	enc, err := EncryptSecret(plaintext)
+	if err != nil {
+		return ""
+	}
+	return enc
+}
+
 func jobFromFilePayload(payload map[string]any) Job {
 	return Job{
 		Kind:             "files",
@@ -127,12 +140,19 @@ func jobFromFilePayload(payload map[string]any) Job {
 		DestType:         defaultStr(payloadStr(payload, "destination_type"), "local"),
 		DeleteExtraneous: payloadBool(payload, "delete_extraneous", false),
 		Excludes:         payloadStrings(payload, "excludes"),
-		SSHHost:          payloadStr(payload, "ssh_host"),
-		SSHPort:          payloadInt(payload, "ssh_port", 22),
-		SSHUser:          payloadStr(payload, "ssh_user"),
-		SSHKey:           payloadStr(payload, "ssh_key_path"),
-		Cron:             payloadStr(payload, "cron"),
-		Enabled:          payloadBool(payload, "enabled", true),
+		NetworkUser:      strings.TrimSpace(payloadStr(payload, "network_user")),
+		// Encrypted right here at the boundary, so the plaintext never
+		// reaches the Job struct that gets serialized to jobs.json. An
+		// encryption failure is swallowed into an empty value rather than
+		// storing plaintext as a fallback -- connectJobShares then fails
+		// loudly with a credential error, which is the safe direction.
+		NetworkPasswordEnc: encryptOrEmpty(payloadStr(payload, "network_password")),
+		SSHHost:            payloadStr(payload, "ssh_host"),
+		SSHPort:            payloadInt(payload, "ssh_port", 22),
+		SSHUser:            payloadStr(payload, "ssh_user"),
+		SSHKey:             payloadStr(payload, "ssh_key_path"),
+		Cron:               payloadStr(payload, "cron"),
+		Enabled:            payloadBool(payload, "enabled", true),
 	}
 }
 
@@ -175,6 +195,12 @@ func fileJobResult(j Job) map[string]any {
 		"kind": "files", "name": j.Name, "source_path": j.Source, "destination_path": j.Dest,
 		"backup_type": "full", "link_dest": "", "delete_extraneous": j.DeleteExtraneous,
 		"excludes": j.Excludes, "destination_type": j.DestType,
+		// network_user round-trips so the edit form can prefill it;
+		// the password deliberately does NOT -- a stored secret is never
+		// rendered back into a page (blank means "keep the current one").
+		// has_network_password lets the form say whether one is saved
+		// without revealing it.
+		"network_user": j.NetworkUser, "has_network_password": j.NetworkPasswordEnc != "",
 		"ssh_host": j.SSHHost, "ssh_port": j.SSHPort, "ssh_user": j.SSHUser, "ssh_key_path": j.SSHKey,
 		"cron": j.Cron, "enabled": j.Enabled,
 	}
@@ -252,6 +278,14 @@ func (e *Executor) dispatch(cmd poller.QueuedCommand) (map[string]any, error) {
 			updated = jobFromFilePayload(cmd.Payload)
 		}
 		updated.Kind = existing.Kind
+		// Blank password on an edit means "keep the current one" -- the
+		// same convention the notification channels use, and the reason
+		// the form never renders a stored secret back into the page.
+		// Without this, merely opening a job and pressing save would
+		// silently wipe its network credential.
+		if payloadStr(cmd.Payload, "network_password") == "" {
+			updated.NetworkPasswordEnc = existing.NetworkPasswordEnc
+		}
 		if err := e.Store.Update(id, updated); err != nil {
 			return nil, err
 		}
@@ -371,6 +405,42 @@ func defaultStr(v, def string) string {
 	return v
 }
 
+// connectJobShares authenticates this process to every distinct network
+// share the job reads from or writes to, decrypting the stored password
+// just in time.
+//
+// Source and destination are handled separately because a job may legally
+// pull from one server and push to another; UNCServerRoot returns "" for
+// an ordinary local path, which makes ConnectUNC a no-op, so no caller
+// needs to pre-check whether a path is a network one.
+//
+// A stored password that fails to decrypt is a hard error, never a silent
+// fallback to an anonymous connection: it means the credential is
+// unusable (typically jobs.json copied from another machine, which
+// machine-scoped DPAPI refuses by design), and an unauthenticated retry
+// would report "access denied" instead of the real cause.
+func (e *Executor) connectJobShares(j Job) error {
+	if j.NetworkUser == "" {
+		return nil
+	}
+	password, err := DecryptSecret(j.NetworkPasswordEnc)
+	if err != nil {
+		return fmt.Errorf("credencial de rede da tarefa %q não pôde ser lida: %w", j.Name, err)
+	}
+	seen := map[string]bool{}
+	for _, path := range []string{j.Source, j.Dest} {
+		share := UNCServerRoot(path)
+		if share == "" || seen[share] {
+			continue
+		}
+		seen[share] = true
+		if err := ConnectUNC(path, j.NetworkUser, password); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // runFileJob actually performs the copy — started in its own goroutine so
 // a multi-minute backup never blocks the 1s heartbeat tick, the same
 // design the Linux agent's jobexec.Engine uses.
@@ -403,6 +473,17 @@ func (e *Executor) runFileJob(j Job) {
 		if jc.Pause != nil {
 			jc.Pause.Wait(ctx)
 		}
+	}
+
+	// Authenticate to any network share this job touches BEFORE copying.
+	// A no-op for ordinary local paths, so this is safe unconditionally.
+	// Failing here must abort the job rather than fall through: without
+	// credentials the copy would fail anyway, but with a confusing
+	// "path not found" instead of naming the real problem.
+	if netErr := e.connectJobShares(j); netErr != nil {
+		e.Registry.Set(j.ID, RunState{Status: "failed", Percent: -1, Message: netErr.Error()})
+		_ = e.Store.UpdateStatus(j.ID, "failed", netErr.Error(), 0, 0, startedAt)
+		return
 	}
 
 	var result MirrorResult

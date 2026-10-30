@@ -31,13 +31,26 @@ type FileJobRequest struct {
 	// should never be copied — caches, temp dirs, a subtree already
 	// covered by another job. See core.ExcludeMatcher for the syntax.
 	Excludes []string
-	DestType string // local|nas|ssh
-	SSHHost  string
-	SSHPort  int
-	SSHUser  string
-	SSHKey   string
-	Cron     string // 5-field cron expression, or "" for manual-only
-	Enabled  bool
+	// NetworkUser/NetworkPassword authenticate to an SMB/UNC path used as
+	// this job's source or destination. WINDOWS AGENT ONLY: a Linux agent
+	// reaches a NAS through a host mount instead, and silently accepting
+	// these there would promise something that never runs.
+	//
+	// NetworkPassword is write-only in the UI sense: it is sent when the
+	// operator types one and is NEVER returned by GetFileJob, following
+	// the project's blank-keeps-the-secret convention. HasNetworkPassword
+	// instead reports whether one is stored, so the form can say so
+	// without revealing it.
+	NetworkUser        string
+	NetworkPassword    string
+	HasNetworkPassword bool
+	DestType           string // local|nas|ssh
+	SSHHost            string
+	SSHPort            int
+	SSHUser            string
+	SSHKey             string
+	Cron               string // 5-field cron expression, or "" for manual-only
+	Enabled            bool
 }
 
 // DBJobRequest describes a database backup job to create or edit. The

@@ -36,6 +36,14 @@ var leadingDriveSlash = regexp.MustCompile(`^/([A-Za-z]:)`)
 // always mean the root here, so rewrite either spelling to "C:\".
 var bareDrive = regexp.MustCompile(`^([A-Za-z]:)\.?$`)
 
+// leadingUNCSlash strips the same bogus leading "/" the picker JS prepends
+// (see leadingDriveSlash) when the path it is building is a UNC one
+// (\\server\share) rather than a drive letter. Without this the path
+// becomes \\\server\share, which is not recognizable as UNC -- and an
+// unrecognized UNC path silently skips authentication and then fails as
+// "path not found" instead of naming the real problem.
+var leadingUNCSlash = regexp.MustCompile(`^[/\\]+(\\\\[^\\])`)
+
 // NormalizeWindowsPath turns whatever shape the (Linux-authored) picker JS
 // sent into a real Windows path os.ReadDir can use.
 func NormalizeWindowsPath(path string) string {
@@ -51,6 +59,11 @@ func NormalizeWindowsPath(path string) string {
 	// drive's own root, and always keeps the root separator for an
 	// absolute path).
 	path = strings.ReplaceAll(path, "/", `\`)
+	// Re-apply the leading-slash fix AFTER separator normalization: the
+	// picker builds "" + "/" + entry, so a UNC path arrives as
+	// "/\\server\share" (or "\\\server\share" once slashes are
+	// converted), neither of which is recognizable as UNC any more.
+	path = leadingUNCSlash.ReplaceAllString(path, "$1")
 	cleaned := filepath.Clean(path)
 	if m := bareDrive.FindStringSubmatch(cleaned); m != nil {
 		return m[1] + `\`
@@ -60,6 +73,20 @@ func NormalizeWindowsPath(path string) string {
 
 func listDir(payload map[string]any) (map[string]any, error) {
 	path, _ := payload["path"].(string)
+
+	// Browsing a network share has to work BEFORE the job is saved --
+	// otherwise the operator would have to type the whole UNC path blind
+	// to create the job that would let them browse it. So the picker may
+	// pass credentials inline; they are used for this listing only and
+	// never stored here (the job's own copy is what gets persisted,
+	// encrypted, by create_job/update_job).
+	if user, _ := payload["network_user"].(string); user != "" {
+		pass, _ := payload["network_password"].(string)
+		if err := ConnectUNC(NormalizeWindowsPath(path), user, pass); err != nil {
+			return nil, err
+		}
+	}
+
 	if path == "" || path == "/" || path == "\\" {
 		drives := listDrives()
 		if len(drives) > 0 {
