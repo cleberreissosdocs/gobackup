@@ -1,10 +1,10 @@
 APRESENTAÇÃO — GOBACKUP
-Texto para fala. Duração estimada: 12 a 15 minutos.
+Texto para fala. Duração estimada: 14 a 17 minutos.
 Marcações [PAUSA] e [TELA] são orientações, não devem ser lidas.
 
 
 -----------------------------------------------------------------------
-1. ABERTURA — O PROBLEMA (2 min)
+1. ABERTURA — O PROBLEMA (3-4 min)
 -----------------------------------------------------------------------
 
 Boa tarde. Vou falar sobre o GoBackup, um sistema de backup que
@@ -22,10 +22,41 @@ Quando funciona, ninguém percebe. Quando para de funcionar, também
 ninguém percebe — até o dia em que você precisa dele. É o único sistema
 da infraestrutura cujo defeito só se manifesta no pior momento possível.
 
+E eu sei disso porque era exatamente assim que a gente trabalhava.
+
+Cada servidor tinha seu script de backup, e cada script mandava um
+e-mail quando terminava. O resultado eram dezenas de e-mails por dia
+chegando na caixa de entrada. Todo dia alguém tinha que abrir um por um
+e ler até o fim para saber se aquele backup tinha concluído com sucesso
+ou morrido no meio.
+
+[PAUSA]
+
+Pensem no que esse método tem de frágil.
+
+Conferir dezenas de e-mails iguais é uma tarefa que o cérebro humano
+aprende a não fazer. Na primeira semana você lê todos. Na terceira, você
+bate o olho no assunto. No segundo mês, eles viram barulho e vão para
+uma pasta.
+
+Mas o pior nem é esse. O pior é o e-mail que NÃO chega. Se o script
+quebrou, se o servidor desligou, se a tarefa nunca iniciou — não chega
+e-mail nenhum. E ausência de e-mail é exatamente igual a uma caixa de
+entrada tranquila. O sinal de problema mais grave que existe é
+indistinguível de um dia normal.
+
+Era preciso notar uma ausência, no meio de dezenas de presenças, todo
+dia. Isso não é disciplina, é sorte.
+
 Então o GoBackup não foi desenhado só para copiar arquivos. Isso o
-rsync já fazia há trinta anos. Ele foi desenhado para responder, a
-qualquer momento e numa tela só, uma pergunta: todos os meus servidores
-estão protegidos neste exato instante?
+rsync já fazia há trinta anos. Ele foi desenhado para inverter essa
+lógica: em vez de dezenas de avisos que você precisa conferir, uma tela
+só que responde, a qualquer momento, uma pergunta — todos os meus
+servidores estão protegidos neste exato instante?
+
+A diferença é que agora o silêncio não é mais ambíguo. O servidor que
+parou de reportar aparece vermelho, sozinho, sem ninguém precisar
+procurar.
 
 
 -----------------------------------------------------------------------
@@ -196,6 +227,10 @@ levaria para você descobrir?
 
 Com o GoBackup, segundos — e numa tela só, para todos os servidores ao
 mesmo tempo.
+
+E ninguém mais precisa abrir dezenas de e-mails para descobrir isso. A
+pergunta deixou de ser respondida uma mensagem por vez, no esforço de
+alguém, e passou a ser respondida de uma vez só, por quem quiser olhar.
 
 O backup em si é a parte fácil. O difícil é saber, todo dia, sem
 precisar perguntar a ninguém, que ele continua acontecendo. É isso que
