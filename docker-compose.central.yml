@@ -37,9 +37,15 @@ services:
         condition: service_healthy
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.central}
+      # Timestamps shown in the web UI are rendered in the CONTAINER's
+      # local zone, and a container with no TZ set runs in UTC — which
+      # silently puts every hour on screen 3 hours ahead of a Brazilian
+      # operator. The image installs tzdata, so naming a zone here is
+      # enough; override TZ in the .env file for a different region.
+      TZ: ${TZ:-America/Sao_Paulo}
     command:
       - serve
-      - -db=postgres://gobackup:${POSTGRES_PASSWORD}@postgres:5432/gobackup?sslmode=disable
+      - -db=postgres://gobackup:***@postgres:5432/gobackup?sslmode=disable
       - -addr=:61443
       - -tls-hosts=${TLS_HOSTS:-localhost,127.0.0.1}
     ports:
