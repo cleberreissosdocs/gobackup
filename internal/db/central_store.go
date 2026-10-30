@@ -282,13 +282,21 @@ func (s *Store) ClearAgentOfflineNotified(ctx context.Context, agentID uuid.UUID
 
 // ListAgentsNeedingOfflineAlert returns agents that are stale (no heartbeat
 // within staleAfter) and haven't already been alerted on for this outage.
+//
+// The cutoff is computed in Go from the single staleAfter constant (see
+// below) and passed in as a parameter instead of being duplicated as a
+// separate SQL literal — a hardcoded `interval '5 seconds'` here used to
+// drift independently from the Go-side staleAfter used by ListAgents,
+// so changing one without the other made the dashboard and the alerter
+// disagree about when an agent is actually offline.
 func (s *Store) ListAgentsNeedingOfflineAlert(ctx context.Context) ([]AgentView, error) {
+	cutoff := time.Now().Add(-staleAfter)
 	rows, err := s.Pool.Query(ctx, `
 		SELECT id, name, hostname, status, last_seen_at
 		FROM agents
 		WHERE notified_offline_at IS NULL
-		  AND (last_seen_at IS NULL OR last_seen_at < now() - interval '5 seconds')
-	`)
+		  AND (last_seen_at IS NULL OR last_seen_at < $1)
+	`, cutoff)
 	if err != nil {
 		return nil, fmt.Errorf("list agents needing offline alert: %w", err)
 	}
@@ -314,11 +322,26 @@ type AgentView struct {
 	LastSeenAt *time.Time
 }
 
+// heartbeatInterval mirrors the agent/winagent default polling interval
+// (cmd/agent's `-interval` flag, cmd/agent's `-heartbeat-interval` flag,
+// winagentcore.RunLoop's interval — all default to 1s). It only affects how
+// missedHeartbeatsThreshold below translates into a duration; it does not
+// change the agents' actual polling rate.
+const heartbeatInterval = 1 * time.Second
+
+// missedHeartbeatsThreshold is how many consecutive heartbeats an agent may
+// miss before Central considers it offline. A flaky tunnel dropping a single
+// beat (or two) should never flip the dashboard red; this is the one place
+// that decides how many drops are tolerated.
+const missedHeartbeatsThreshold = 5
+
 // staleAfter is how long since the last heartbeat before the dashboard
 // should show an agent as offline, even if its DB row still says online.
-// With a 1s heartbeat interval, 5s of silence (5 missed beats) is a solid
-// signal without being trigger-happy on a single dropped packet.
-const staleAfter = 5 * time.Second
+// Derived from heartbeatInterval * missedHeartbeatsThreshold so every
+// consumer (ListAgents' in-Go comparison and
+// ListAgentsNeedingOfflineAlert's SQL cutoff) agrees on the same value —
+// never hardcode an equivalent duration anywhere else.
+const staleAfter = heartbeatInterval * missedHeartbeatsThreshold
 
 // GetAgentName returns the current display name of one agent (for
 // pre-filling the rename form).
