@@ -1040,6 +1040,55 @@ type timelineBar struct {
 type timelineRow struct {
 	JobName string
 	Bars    []timelineBar
+	Runs    int
+}
+
+// timelineTick is one label along the shared time axis header, positioned
+// the same way a timelineBar is (LeftPct, 0-100) so it lines up with the
+// bars underneath it.
+type timelineTick struct {
+	LeftPct float64
+	Label   string
+}
+
+// buildTimeTicks spreads n evenly-spaced labels across [start,end] for the
+// axis header and the vertical gridlines behind the bars.
+func buildTimeTicks(start, end time.Time, n int) []timelineTick {
+	if n < 2 || !end.After(start) {
+		return nil
+	}
+	span := end.Sub(start)
+	ticks := make([]timelineTick, 0, n)
+	for i := 0; i < n; i++ {
+		frac := float64(i) / float64(n-1)
+		t := start.Add(time.Duration(frac * float64(span)))
+		ticks = append(ticks, timelineTick{LeftPct: frac * 100, Label: t.Local().Format("02/01 15:04")})
+	}
+	return ticks
+}
+
+// timelineStats summarizes the execution records for the small stat cards
+// at the top of the page — a quick read before scanning the chart itself.
+type timelineStats struct {
+	Total       int
+	Success     int
+	Failed      int
+	SuccessRate int // percentage, rounded
+}
+
+func buildTimelineStats(records []webui.ExecutionRecord) timelineStats {
+	st := timelineStats{Total: len(records)}
+	for _, rec := range records {
+		if rec.Status == "success" {
+			st.Success++
+		} else if rec.Status == "failed" {
+			st.Failed++
+		}
+	}
+	if st.Total > 0 {
+		st.SuccessRate = int(float64(st.Success) / float64(st.Total) * 100)
+	}
+	return st
 }
 
 // buildTimeline groups execution records by job name and positions each
@@ -1105,7 +1154,8 @@ func buildTimeline(records []webui.ExecutionRecord) (rows []timelineRow, rangeSt
 		})
 	}
 	for _, name := range order {
-		rows = append(rows, timelineRow{JobName: name, Bars: byJob[name]})
+		bars := byJob[name]
+		rows = append(rows, timelineRow{JobName: name, Bars: bars, Runs: len(bars)})
 	}
 	return rows, rangeStart, rangeEnd, true
 }
@@ -1129,10 +1179,13 @@ func (s *Server) handleAgentTimeline(w http.ResponseWriter, r *http.Request) {
 		log.Println("agent timeline: job history:", histErr)
 	}
 	rows, rangeStart, rangeEnd, hasData := buildTimeline(records)
+	stats := buildTimelineStats(records)
 
 	rangeLabel := ""
+	var ticks []timelineTick
 	if hasData {
 		rangeLabel = fmt.Sprintf("%s — %s", rangeStart.Local().Format("02/01/2006 15:04"), rangeEnd.Local().Format("02/01/2006 15:04"))
+		ticks = buildTimeTicks(rangeStart, rangeEnd, 6)
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -1143,7 +1196,9 @@ func (s *Server) handleAgentTimeline(w http.ResponseWriter, r *http.Request) {
 		HasError   bool
 		RangeLabel string
 		Rows       []timelineRow
-	}{agentID.String(), agentName, hasData, histErr != nil, rangeLabel, rows}); err != nil {
+		Ticks      []timelineTick
+		Stats      timelineStats
+	}{agentID.String(), agentName, hasData, histErr != nil, rangeLabel, rows, ticks, stats}); err != nil {
 		log.Println("agent timeline: render:", err)
 	}
 }
@@ -1157,57 +1212,135 @@ var timelineTmpl = template.Must(template.New("agent-timeline").Parse(`<!doctype
 <style>
 * { box-sizing: border-box; }
 :root {
-  --gb-bg: #0b0c10; --gb-card: #16171e; --gb-border: #262835; --gb-border-soft: #1f2029;
-  --gb-text: #e8e8ec; --gb-text-muted: #8a8f9c; --gb-accent: #2d6cdf;
-  --gb-success: #2ecc71; --gb-danger: #f0544a;
+  --gb-bg: #0a0b0f; --gb-card: #14151c; --gb-card-soft: #191a22; --gb-border: #262835; --gb-border-soft: #1e1f29;
+  --gb-text: #e8e8ec; --gb-text-muted: #8a8f9c; --gb-text-faint: #5f6372; --gb-accent: #2d6cdf; --gb-accent-soft: rgba(45,108,223,0.12);
+  --gb-success: #2ecc71; --gb-success-dark: #1f9e58; --gb-danger: #f0544a; --gb-danger-dark: #c23a32;
 }
-body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--gb-bg); color: var(--gb-text); margin:0; padding:2rem; }
-nav { margin-bottom:1.5rem; display:flex; align-items:center; gap:0.5rem; }
-nav img { width:18px; height:18px; object-fit:contain; }
-nav a { color:#9ad1ff; text-decoration:none; }
-nav a:hover { text-decoration:underline; }
-h1 { margin:0 0 0.3rem; font-size:1.4rem; }
-.subtitle { color: var(--gb-text-muted); margin-bottom:1.5rem; font-size:0.9rem; }
-.gb-card { background: var(--gb-card); border:1px solid var(--gb-border); border-radius:12px; padding:1.5rem; }
-.legend { display:flex; gap:1.5rem; margin-bottom:1.5rem; font-size:0.85rem; color: var(--gb-text-muted); }
-.legend span.dot { display:inline-block; width:0.7rem; height:0.7rem; border-radius:50%; margin-right:0.4rem; vertical-align:middle; }
-.timeline-wrap { display:flex; }
-.timeline-labels { width:220px; flex-shrink:0; padding-right:0.75rem; }
-.timeline-label { height:38px; display:flex; align-items:center; font-size:0.85rem; border-bottom:1px solid var(--gb-border-soft); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+body {
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--gb-text); margin:0; padding:2.5rem;
+  background: radial-gradient(circle at 15% -10%, rgba(45,108,223,0.12), transparent 45%), var(--gb-bg);
+  min-height:100vh;
+}
+nav { margin-bottom:2rem; display:flex; align-items:center; gap:1.25rem; }
+nav .brand { display:flex; align-items:center; gap:0.5rem; color:var(--gb-text); font-weight:600; text-decoration:none; }
+nav img { width:20px; height:20px; object-fit:contain; }
+nav a:not(.brand) { color: var(--gb-text-muted); text-decoration:none; font-size:0.88rem; padding:0.4rem 0.1rem; border-bottom:2px solid transparent; transition: color .15s, border-color .15s; }
+nav a:not(.brand):hover { color: var(--gb-text); border-color: var(--gb-accent); }
+.header-row { display:flex; justify-content:space-between; align-items:flex-end; gap:1rem; margin-bottom:1.75rem; flex-wrap:wrap; }
+h1 { margin:0 0 0.35rem; font-size:1.5rem; font-weight:650; letter-spacing:-0.01em; }
+.subtitle { color: var(--gb-text-muted); font-size:0.9rem; }
+.stats { display:flex; gap:0.9rem; flex-wrap:wrap; }
+.stat-card {
+  background: var(--gb-card); border:1px solid var(--gb-border); border-radius:12px;
+  padding:0.85rem 1.2rem; min-width:118px;
+}
+.stat-card .stat-value { font-size:1.5rem; font-weight:700; line-height:1.1; }
+.stat-card .stat-label { color: var(--gb-text-muted); font-size:0.75rem; margin-top:0.2rem; text-transform:uppercase; letter-spacing:0.04em; }
+.stat-card.success .stat-value { color: var(--gb-success); }
+.stat-card.danger .stat-value { color: var(--gb-danger); }
+
+{{if .HasError}}
+.warn { display:flex; align-items:center; gap:0.6rem; background: rgba(240,84,74,0.1); border:1px solid rgba(240,84,74,0.35); color:#ff8f87; font-size:0.85rem; padding:0.75rem 1rem; border-radius:10px; margin-bottom:1.25rem; }
+{{end}}
+
+.gb-card {
+  background: linear-gradient(180deg, var(--gb-card) 0%, var(--gb-card-soft) 100%);
+  border:1px solid var(--gb-border); border-radius:16px; padding:1.75rem;
+  box-shadow: 0 20px 50px -25px rgba(0,0,0,0.6);
+}
+.legend { display:flex; align-items:center; gap:1.5rem; margin-bottom:1.5rem; font-size:0.82rem; color: var(--gb-text-muted); }
+.legend .item { display:flex; align-items:center; gap:0.45rem; }
+.legend .dot { display:inline-block; width:0.6rem; height:0.6rem; border-radius:50%; }
+
+.timeline-axis { display:flex; margin-bottom:0.4rem; }
+.timeline-axis .axis-spacer { width:200px; flex-shrink:0; }
+.timeline-axis .axis-track { flex:1; position:relative; height:1.2rem; min-width:0; }
+.timeline-axis .axis-tick { position:absolute; top:0; transform:translateX(-50%); font-size:0.72rem; color: var(--gb-text-faint); white-space:nowrap; }
+.timeline-axis .axis-tick:first-child { transform:translateX(0); }
+.timeline-axis .axis-tick:last-child { transform:translateX(-100%); }
+
+.timeline-wrap { display:flex; border-top:1px solid var(--gb-border-soft); }
+.timeline-labels { width:200px; flex-shrink:0; padding-right:1rem; }
+.timeline-label {
+  height:44px; display:flex; flex-direction:column; justify-content:center;
+  font-size:0.84rem; font-weight:500; border-bottom:1px solid var(--gb-border-soft);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.timeline-label .runs-count { font-size:0.7rem; font-weight:400; color: var(--gb-text-faint); margin-top:0.1rem; }
 .timeline-area { flex:1; position:relative; min-width:0; }
-.timeline-row { height:38px; position:relative; border-bottom:1px solid var(--gb-border-soft); }
-.timeline-bar { position:absolute; top:7px; height:24px; border-radius:4px; cursor:default; opacity:0.92; }
-.timeline-bar:hover { opacity:1; outline:1px solid rgba(255,255,255,0.5); }
-.timeline-bar.success { background: var(--gb-success); }
-.timeline-bar.failed { background: var(--gb-danger); }
-.range-label { text-align:center; color: var(--gb-text-muted); font-size:0.8rem; margin-top:0.75rem; }
-.empty { color: var(--gb-text-muted); padding:2rem 0; text-align:center; }
-.warn { color: var(--gb-danger); font-size:0.85rem; margin-bottom:1rem; }
+.timeline-gridlines { position:absolute; inset:0; pointer-events:none; }
+.timeline-gridlines .gridline { position:absolute; top:0; bottom:0; width:1px; background: var(--gb-border-soft); }
+.timeline-row { height:44px; position:relative; border-bottom:1px solid var(--gb-border-soft); transition: background .12s; }
+.timeline-row:hover { background: rgba(255,255,255,0.025); }
+.timeline-bar {
+  position:absolute; top:11px; height:22px; border-radius:6px; cursor:default;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.4); transition: transform .12s, box-shadow .12s, filter .12s;
+}
+.timeline-bar:hover { transform: scaleY(1.18); filter:brightness(1.12); box-shadow: 0 4px 14px -2px rgba(0,0,0,0.6); z-index:5; }
+.timeline-bar.success { background: linear-gradient(180deg, #38d97a, var(--gb-success-dark)); }
+.timeline-bar.failed { background: linear-gradient(180deg, #ff6b61, var(--gb-danger-dark)); }
+.timeline-bar[data-tooltip] { overflow:visible; }
+.timeline-bar[data-tooltip]:hover::after {
+  content: attr(data-tooltip); position:absolute; bottom:calc(100% + 10px); left:50%; transform:translateX(-50%);
+  background:#0d0e13; border:1px solid var(--gb-border); color: var(--gb-text); font-size:0.75rem; line-height:1.45;
+  padding:0.55rem 0.7rem; border-radius:8px; white-space:pre; z-index:20; box-shadow: 0 10px 30px -8px rgba(0,0,0,0.7);
+  pointer-events:none;
+}
+.timeline-bar[data-tooltip]:hover::before {
+  content:""; position:absolute; bottom:calc(100% + 4px); left:50%; transform:translateX(-50%);
+  border:6px solid transparent; border-top-color:#0d0e13; z-index:20; pointer-events:none;
+}
+
+.range-label { text-align:center; color: var(--gb-text-faint); font-size:0.78rem; margin-top:1.1rem; }
+.empty { color: var(--gb-text-muted); padding:3rem 0; text-align:center; font-size:0.95rem; }
 </style>
 </head>
 <body>
-<nav><a href="/"><img src="/logo.png" alt="">GoBackup Central</a>
-<a href="/">&larr; Dashboard</a>
-<a href="/agents/{{.AgentID}}/">Administrar este servidor</a>
+<nav>
+  <a class="brand" href="/"><img src="/logo.png" alt="">GoBackup Central</a>
+  <a href="/">&larr; Dashboard</a>
+  <a href="/agents/{{.AgentID}}/">Administrar este servidor</a>
 </nav>
-<h1>Linha do tempo de backups — {{.AgentName}}</h1>
-<div class="subtitle">Execuções com sucesso ou falha dos últimos 30 dias, uma linha por tarefa.</div>
 
-{{if .HasError}}<div class="warn">Não foi possível buscar o histórico agora (o agente pode estar offline ou ainda não confirmou o pedido — tente recarregar em alguns segundos).</div>{{end}}
+<div class="header-row">
+  <div>
+    <h1>Linha do tempo de backups — {{.AgentName}}</h1>
+    <div class="subtitle">Execuções com sucesso ou falha dos últimos 30 dias, uma linha por tarefa.</div>
+  </div>
+  {{if .HasData}}
+  <div class="stats">
+    <div class="stat-card"><div class="stat-value">{{.Stats.Total}}</div><div class="stat-label">Execuções</div></div>
+    <div class="stat-card success"><div class="stat-value">{{.Stats.SuccessRate}}%</div><div class="stat-label">Taxa de sucesso</div></div>
+    <div class="stat-card success"><div class="stat-value">{{.Stats.Success}}</div><div class="stat-label">Sucessos</div></div>
+    <div class="stat-card danger"><div class="stat-value">{{.Stats.Failed}}</div><div class="stat-label">Falhas</div></div>
+  </div>
+  {{end}}
+</div>
+
+{{if .HasError}}<div class="warn">⚠ Não foi possível buscar o histórico agora (o agente pode estar offline ou ainda não confirmou o pedido — tente recarregar em alguns segundos).</div>{{end}}
 
 <div class="gb-card">
 <div class="legend">
-  <span><span class="dot" style="background:var(--gb-success);"></span>Sucesso</span>
-  <span><span class="dot" style="background:var(--gb-danger);"></span>Falhou</span>
+  <span class="item"><span class="dot" style="background:var(--gb-success);"></span>Sucesso</span>
+  <span class="item"><span class="dot" style="background:var(--gb-danger);"></span>Falhou</span>
 </div>
 {{if .HasData}}
+<div class="timeline-axis">
+  <div class="axis-spacer"></div>
+  <div class="axis-track">
+    {{range .Ticks}}<div class="axis-tick" style="left:{{.LeftPct}}%;">{{.Label}}</div>{{end}}
+  </div>
+</div>
 <div class="timeline-wrap">
   <div class="timeline-labels">
-  {{range .Rows}}<div class="timeline-label" title="{{.JobName}}">{{.JobName}}</div>{{end}}
+  {{range .Rows}}<div class="timeline-label" title="{{.JobName}}">{{.JobName}}<span class="runs-count">{{.Runs}} execuç{{if eq .Runs 1}}ão{{else}}ões{{end}}</span></div>{{end}}
   </div>
   <div class="timeline-area">
+    <div class="timeline-gridlines">
+      {{range .Ticks}}<div class="gridline" style="left:{{.LeftPct}}%;"></div>{{end}}
+    </div>
   {{range .Rows}}<div class="timeline-row">
-    {{range .Bars}}<div class="timeline-bar {{.Status}}" style="left:{{.LeftPct}}%; width:{{.WidthPct}}%;" title="{{.Tooltip}}"></div>{{end}}
+    {{range .Bars}}<div class="timeline-bar {{.Status}}" style="left:{{.LeftPct}}%; width:{{.WidthPct}}%;" data-tooltip="{{.Tooltip}}"></div>{{end}}
   </div>{{end}}
   </div>
 </div>
