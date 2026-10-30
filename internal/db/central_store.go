@@ -67,13 +67,18 @@ func (s *Store) AuthenticateAgent(ctx context.Context, token string) (uuid.UUID,
 // platform is the agent's runtime.GOOS; it is only written when non-empty
 // so a heartbeat from an older agent build (which doesn't report it) never
 // blanks out a value an earlier, newer build already stored.
-func (s *Store) TouchAgentHeartbeat(ctx context.Context, agentID uuid.UUID, status, platform string) error {
+func (s *Store) TouchAgentHeartbeat(ctx context.Context, agentID uuid.UUID, status, platform, timezone string, tzOffsetMinutes int) error {
+	// Each reported field overwrites only when the agent actually sent it:
+	// a heartbeat from an older build must never blank a value a newer
+	// build already recorded.
 	_, err := s.Pool.Exec(ctx, `
 		UPDATE agents
 		SET status = 'online', last_seen_at = now(), notified_offline_at = NULL,
-		    platform = CASE WHEN $2 <> '' THEN $2 ELSE platform END
+		    platform = CASE WHEN $2 <> '' THEN $2 ELSE platform END,
+		    timezone = CASE WHEN $3 <> '' THEN $3 ELSE timezone END,
+		    tz_offset_minutes = CASE WHEN $3 <> '' THEN $4 ELSE tz_offset_minutes END
 		WHERE id = $1
-	`, agentID, platform)
+	`, agentID, platform, timezone, tzOffsetMinutes)
 	_ = status // reserved for future use (idle/running distinction in the dashboard)
 	if err != nil {
 		return fmt.Errorf("heartbeat: %w", err)
@@ -92,6 +97,22 @@ func (s *Store) AgentPlatform(ctx context.Context, agentID uuid.UUID) (string, e
 		return "", fmt.Errorf("agent platform: %w", err)
 	}
 	return platform, nil
+}
+
+// AgentTimezone returns the zone name and last reported offset (minutes
+// east of UTC) the agent schedules in. The name is empty when the agent has
+// never reported one (an older build) or does not exist; callers must then
+// tell the reader the timezone is unknown rather than assuming one.
+func (s *Store) AgentTimezone(ctx context.Context, agentID uuid.UUID) (string, int, error) {
+	var name string
+	var offsetMinutes int
+	err := s.Pool.QueryRow(ctx,
+		`SELECT timezone, tz_offset_minutes FROM agents WHERE id = $1`, agentID).
+		Scan(&name, &offsetMinutes)
+	if err != nil {
+		return "", 0, fmt.Errorf("agent timezone: %w", err)
+	}
+	return name, offsetMinutes, nil
 }
 
 // QueuedCommand is a command delivered to the agent in a poll response.

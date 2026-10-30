@@ -88,6 +88,18 @@ func (s *Server) routes() {
 			platform, _ := s.Store.AgentPlatform(r.Context(), agentID)
 			return platform
 		},
+		GetTimezone: func(r *http.Request) (string, int) {
+			agentID, err := uuid.Parse(r.PathValue("id"))
+			if err != nil {
+				return "", 0
+			}
+			// "" on any failure, which the schedule widget renders as
+			// "this agent has not reported its timezone" — an honest
+			// gap the reader can act on, unlike silently implying the
+			// schedule runs in their own clock.
+			name, offsetMinutes, _ := s.Store.AgentTimezone(r.Context(), agentID)
+			return name, offsetMinutes
+		},
 	}
 	site.Mount(s.Mux, "/agents/{id}")
 }
@@ -162,6 +174,12 @@ type pollRequest struct {
 	// "linux"). Empty from an agent older than this field — callers must
 	// treat "" as "unknown", never as "not Windows".
 	Platform string `json:"platform"`
+	// Timezone is the IANA name (or abbreviation) the agent schedules in,
+	// and TZOffsetMinutes the offset it saw when it reported. Empty/zero
+	// from an older agent — treat as "unknown" and say so in the UI, never
+	// as UTC: a wrong timezone shown confidently is worse than none.
+	Timezone        string `json:"timezone"`
+	TZOffsetMinutes int    `json:"tz_offset_minutes"`
 }
 
 type pollResponse struct {
@@ -185,7 +203,7 @@ func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
 	var req pollRequest
 	_ = json.NewDecoder(r.Body).Decode(&req) // best-effort; body is optional
 
-	if err := s.Store.TouchAgentHeartbeat(ctx, agentID, req.Status, req.Platform); err != nil {
+	if err := s.Store.TouchAgentHeartbeat(ctx, agentID, req.Status, req.Platform, req.Timezone, req.TZOffsetMinutes); err != nil {
 		log.Println("poll: heartbeat:", err)
 		httpError(w, http.StatusInternalServerError, "internal error")
 		return

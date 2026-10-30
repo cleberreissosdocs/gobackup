@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cleber/gobackup/internal/core"
 )
@@ -110,7 +111,19 @@ var funcs = template.FuncMap{
 	// (replaces a raw cron text box). prefix must be unique per form on the
 	// same page (e.g. "file", "db", "efile", "edb") so multiple instances
 	// don't collide; cronValue pre-fills it when editing an existing job.
-	"scheduleBuilder": func(prefix, cronValue string) template.HTML {
+	// tzLabel names the clock the schedule will actually run in (see
+	// webui.TimezoneLabel): the cron is matched on the AGENT, so the field
+	// has to say whose 03:00 it means.
+	//
+	// It is taken as any, not string, on purpose: a page whose data map
+	// forgets the key would otherwise fail to render ENTIRELY, taking the
+	// whole job screen down over a cosmetic label. Anything that is not a
+	// non-empty string degrades to the honest "timezone unknown" sentence.
+	"scheduleBuilder": func(prefix, cronValue string, tzLabel any) template.HTML {
+		label, _ := tzLabel.(string)
+		if label == "" {
+			label = TimezoneLabel("", 0, time.Now())
+		}
 		return template.HTML(`<div class="gb-sched" data-prefix="` + template.HTMLEscapeString(prefix) + `" data-initial="` + template.HTMLEscapeString(cronValue) + `">
   <input type="hidden" name="cron" class="gb-sched-cron">
   <div class="gb-sched-freq">
@@ -143,6 +156,7 @@ var funcs = template.FuncMap{
     <label>Expressão cron <input type="text" class="gb-sched-raw" placeholder="minuto hora dia mês dia-da-semana"></label>
   </div>
   <p class="gb-sched-summary"></p>
+  <p class="gb-sched-tz">` + template.HTMLEscapeString(label) + `</p>
 </div>`)
 	},
 }
@@ -265,6 +279,11 @@ a.status-running:hover { filter: brightness(1.15); }
 .gb-sched-day { background: var(--gb-card-2); color: var(--gb-text-muted); border:1px solid var(--gb-border); padding:0.35rem 0.6rem; border-radius: var(--gb-radius-sm); font-size:0.8rem; }
 .gb-sched-day.active { background: var(--gb-accent); border-color: var(--gb-accent); color:#fff; }
 .gb-sched-summary { margin:0.8rem 0 0; font-size:0.84rem; color: var(--gb-text-muted); }
+/* The clock the cron runs in. Dimmer than the summary (it is a constant
+   fact about the agent, not feedback on what the user just chose) but
+   always present, because a schedule read in the wrong timezone fails
+   silently -- the backup simply never happens when expected. */
+.gb-sched-tz { margin:0.3rem 0 0; font-size:0.78rem; color: var(--gb-text-muted); opacity:0.85; }
 .gb-card {
   border: 1px solid var(--gb-border); background: linear-gradient(160deg, var(--gb-card) 0%, var(--gb-bg-elev) 100%);
   border-radius: var(--gb-radius); box-shadow: 0 6px 20px rgba(0,0,0,0.25);
@@ -651,7 +670,7 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
     </div>
   </div>
   <div>Agendamento:
-    {{scheduleBuilder "file" ""}}
+    {{scheduleBuilder "file" "" .AgentTZ}}
   </div>
   <button type="submit">Criar</button>
   <button type="button" class="secondary" onclick="gbShowNewJob()" style="margin-left:0.6rem;">&larr; voltar</button>
@@ -715,7 +734,7 @@ var homeTmpl = template.Must(template.New("home").Funcs(funcs).Parse(`
   </div>
   <div>Reter backups por (dias): <input type="number" name="retention_days" min="0" value="0"> <small>backups desta tarefa com mais de X dias são apagados automaticamente após cada execução — 0 = nunca apagar</small></div>
   <div>Agendamento <small>(se o banco exigir senha, um backup agendado vai falhar porque a senha nunca fica salva — agende só sem autenticação, ou rode manualmente)</small>:
-    {{scheduleBuilder "db" ""}}
+    {{scheduleBuilder "db" "" .AgentTZ}}
   </div>
   <button type="submit">Criar</button>
   <button type="button" class="secondary" onclick="gbShowNewJob()" style="margin-left:0.6rem;">&larr; voltar</button>
@@ -856,7 +875,7 @@ var editFileTmpl = template.Must(template.New("edit-file").Funcs(funcs).Parse(`
     </div>
   </div>
   <div>Agendamento:
-    {{scheduleBuilder "efile" .Job.Cron}}
+    {{scheduleBuilder "efile" .Job.Cron .AgentTZ}}
   </div>
   <div><label><input type="checkbox" name="enabled" {{if .Job.Enabled}}checked{{end}}> Habilitada (desmarcar pausa o agendamento, sem apagar a tarefa)</label></div>
   <button type="submit">Salvar</button>
@@ -923,7 +942,7 @@ var editDBTmpl = template.Must(template.New("edit-db").Funcs(funcs).Parse(`
   </div>
   <div>Reter backups por (dias): <input type="number" name="retention_days" min="0" value="{{.Job.RetentionDays}}"> <small>backups desta tarefa com mais de X dias são apagados automaticamente após cada execução — 0 = nunca apagar</small></div>
   <div>Agendamento <small>(só funciona se o banco não exigir senha)</small>:
-    {{scheduleBuilder "edb" .Job.Cron}}
+    {{scheduleBuilder "edb" .Job.Cron .AgentTZ}}
   </div>
   <div><label><input type="checkbox" name="enabled" {{if .Job.Enabled}}checked{{end}}> Habilitada (desmarcar pausa o agendamento, sem apagar a tarefa)</label></div>
   <button type="submit">Salvar</button>

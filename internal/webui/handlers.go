@@ -34,6 +34,13 @@ type Site struct {
 	// hook means "unknown", and the form then shows such options labelled
 	// rather than hiding them, so a capability is never silently missing.
 	GetPlatform func(r *http.Request) string
+	// GetTimezone reports the zone the administered agent schedules in:
+	// its IANA name (or abbreviation) and the offset in minutes east of
+	// UTC that it last reported. Central looks this up from the heartbeat;
+	// the agent's own local UI answers with its own clock. A nil hook or
+	// an empty name means "unknown", and the schedule widget then says so
+	// instead of implying the reader's own timezone applies.
+	GetTimezone func(r *http.Request) (name string, offsetMinutes int)
 }
 
 // platform resolves the administered agent's OS, or "" when unknown.
@@ -42,6 +49,15 @@ func (s *Site) platform(r *http.Request) string {
 		return ""
 	}
 	return s.GetPlatform(r)
+}
+
+// timezoneLabel renders the sentence naming the clock a schedule runs in.
+func (s *Site) timezoneLabel(r *http.Request) string {
+	if s.GetTimezone == nil {
+		return TimezoneLabel("", 0, time.Now())
+	}
+	name, offsetMinutes := s.GetTimezone(r)
+	return TimezoneLabel(name, offsetMinutes, time.Now())
 }
 
 // Mount registers the shared admin screens under the given prefix pattern.
@@ -153,6 +169,7 @@ func (s *Site) handleHome(w http.ResponseWriter, r *http.Request) {
 		"Jobs":     jobs,
 		"CSRF":     s.Auth.CSRFToken(r),
 		"Platform": s.platform(r),
+		"AgentTZ":  s.timezoneLabel(r),
 	})
 }
 
@@ -358,12 +375,14 @@ func (s *Site) handleEditJobForm(w http.ResponseWriter, r *http.Request) {
 		s.renderPage(w, r, "Editar tarefa — "+name, editFileTmpl, map[string]any{
 			"Name": name, "Base": s.base(r), "JobID": jobID, "Job": fileReq, "CSRF": s.Auth.CSRFToken(r),
 			"Platform": s.platform(r),
+			"AgentTZ":  s.timezoneLabel(r),
 		})
 		return
 	}
 	if dbReq, derr := runner.GetDBJob(ctx, jobID); derr == nil {
 		s.renderPage(w, r, "Editar tarefa — "+name, editDBTmpl, map[string]any{
 			"Name": name, "Base": s.base(r), "JobID": jobID, "Job": dbReq, "CSRF": s.Auth.CSRFToken(r),
+			"AgentTZ": s.timezoneLabel(r),
 		})
 		return
 	}

@@ -125,6 +125,26 @@ type RunningInfo struct {
 	Message string `json:"message"`
 }
 
+// localTimezone names the zone this process schedules in and reports its
+// current offset in minutes east of UTC.
+//
+// The name is what Central should prefer: resolving it there recomputes the
+// offset at display time, so the panel stays right across a daylight-saving
+// change the agent has not polled through yet. time.Local.String() gives the
+// IANA name when one is known (from TZ or /etc/localtime); when it does not
+// — it answers "Local" for a zone the runtime could not name — fall back to
+// the abbreviation for the instant, which is still more use to a reader than
+// an empty field. The offset rides along for the case where the receiving
+// machine cannot resolve the name at all.
+func localTimezone(now time.Time) (name string, offsetMinutes int) {
+	abbrev, offsetSeconds := now.Zone()
+	name = time.Local.String()
+	if name == "" || name == "Local" {
+		name = abbrev
+	}
+	return name, offsetSeconds / 60
+}
+
 // Poll sends one heartbeat with the agent's current status, its current
 // list of job definitions, any running/just-finished execution progress,
 // and any results from previously received commands; it returns newly
@@ -135,9 +155,16 @@ func (c *Client) Poll(status string, results []CommandResult, jobs []JobInfo, ru
 	// options — network/UNC folders with SMB credentials only exist on
 	// the Windows agent. This package is compiled into BOTH agents, so
 	// runtime.GOOS here is correct for each without per-agent code.
+	//
+	// The timezone travels with it for the same reason: cron expressions
+	// are matched against THIS process's clock, so the panel where someone
+	// types "03:00" has to be able to say which 03:00 that is.
+	tzName, tzOffsetMinutes := localTimezone(time.Now())
 	body, _ := json.Marshal(map[string]any{
 		"status": status, "command_results": results, "jobs": jobs, "running": running,
-		"platform": runtime.GOOS,
+		"platform":          runtime.GOOS,
+		"timezone":          tzName,
+		"tz_offset_minutes": tzOffsetMinutes,
 	})
 	req, err := http.NewRequest(http.MethodPost, c.CentralURL+"/api/v1/agents/poll", bytes.NewReader(body))
 	if err != nil {

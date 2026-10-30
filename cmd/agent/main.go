@@ -486,6 +486,17 @@ func cmdServe(args []string) {
 		},
 		// This UI only ever administers the machine it runs on.
 		GetPlatform: func(r *http.Request) string { return runtime.GOOS },
+		GetTimezone: func(r *http.Request) (string, int) {
+			// Same clock the scheduler in this process matches cron
+			// against, so the form cannot disagree with reality.
+			now := time.Now()
+			abbrev, offsetSeconds := now.Zone()
+			name := time.Local.String()
+			if name == "" || name == "Local" {
+				name = abbrev
+			}
+			return name, offsetSeconds / 60
+		},
 	}
 
 	mux := http.NewServeMux()
