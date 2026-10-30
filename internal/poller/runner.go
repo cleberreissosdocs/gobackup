@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/cleber/gobackup/internal/core"
 	"github.com/cleber/gobackup/internal/db"
 	"github.com/cleber/gobackup/internal/jobexec"
 	"github.com/cleber/gobackup/internal/progress"
@@ -115,6 +116,15 @@ func (r *Runner) Run(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
+	// A failing heartbeat used to live only in memory (shown in the UI),
+	// so an agent that could not reach Central for hours left NOTHING in
+	// the log to explain it afterwards. Logging every tick is not the fix
+	// either — at this interval that is thousands of identical lines, and
+	// the Windows agent's log rotates at 2 MiB, so the spam would evict
+	// the very history being sought. One line when it breaks, one when it
+	// comes back.
+	var beatFailure core.RepeatedError
+
 	for {
 		client, ok := r.clientFor(ctx)
 		if ok {
@@ -136,11 +146,13 @@ func (r *Runner) Run(ctx context.Context, interval time.Duration) {
 				r.lastBeatOK = false
 				r.lastBeatError = err.Error()
 				r.mu.Unlock()
+				beatFailure.Report("heartbeat", err, log.Printf)
 				pendingResults = nil
 			} else {
 				r.lastBeatOK = true
 				r.lastBeatError = ""
 				r.mu.Unlock()
+				beatFailure.Resolved("heartbeat", log.Printf)
 				pendingResults = nil
 				for _, cmd := range resp.Commands {
 					log.Printf("executing command %s (%s)", cmd.ID, cmd.Type)

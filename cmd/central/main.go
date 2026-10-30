@@ -128,23 +128,32 @@ func cmdServe(args []string) {
 func runOfflineChecker(ctx context.Context, store *db.Store, srv *api.Server) {
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
+	// This loop ticks every 3s, so logging each failure as it happens
+	// turned a database outage into hundreds of identical lines — burying
+	// the history of the very incident someone opens the log to read.
+	// One line when it starts, one when it ends (see core.RepeatedError).
+	var listFailure, tenantFailure, markFailure core.RepeatedError
 	for range ticker.C {
 		agents, err := store.ListAgentsNeedingOfflineAlert(ctx)
 		if err != nil {
-			log.Println("offline checker:", err)
+			listFailure.Report("offline checker", err, log.Printf)
 			continue
 		}
+		listFailure.Resolved("offline checker", log.Printf)
 		for _, a := range agents {
 			tenantID, _, err := store.AgentTenantAndName(ctx, a.ID)
 			if err != nil {
-				log.Println("offline checker: tenant lookup:", err)
+				tenantFailure.Report("offline checker: tenant lookup", err, log.Printf)
 				continue
 			}
+			tenantFailure.Resolved("offline checker: tenant lookup", log.Printf)
 			srv.Notifier.Dispatch(ctx, tenantID, "agent_offline",
 				fmt.Sprintf("[GoBackup] Servidor offline — %s", a.Name),
 				fmt.Sprintf("O servidor %q (%s) parou de enviar heartbeat.", a.Name, a.Hostname))
 			if err := store.MarkAgentOfflineNotified(ctx, a.ID); err != nil {
-				log.Println("offline checker: mark notified:", err)
+				markFailure.Report("offline checker: mark notified", err, log.Printf)
+			} else {
+				markFailure.Resolved("offline checker: mark notified", log.Printf)
 			}
 		}
 	}
