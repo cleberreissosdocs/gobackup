@@ -73,7 +73,22 @@ func Run(ctx context.Context, opts Options, destDir string, compression core.Com
 	if err != nil {
 		return Result{}, fmt.Errorf("create output file: %w", err)
 	}
-	defer out.Close()
+	// closeOut is called explicitly before removing a failed dump and
+	// again by the defer on the success path; os.File tolerates the
+	// second call (it just returns ErrClosed, which nothing reads).
+	//
+	// Closing BEFORE the remove is the whole point: Windows refuses to
+	// delete a file that is still open, so a failed database backup used
+	// to leave a 23-byte empty gzip sitting in the destination folder,
+	// looking from a directory listing exactly like a real backup.
+	closed := false
+	closeOut := func() {
+		if !closed {
+			closed = true
+			_ = out.Close()
+		}
+	}
+	defer closeOut()
 
 	var writer io.Writer = out
 	var closers []io.Closer
@@ -111,7 +126,13 @@ func Run(ctx context.Context, opts Options, destDir string, compression core.Com
 		}
 	}
 	if err != nil {
-		os.Remove(outPath)
+		closeOut()
+		if rmErr := os.Remove(outPath); rmErr != nil && !os.IsNotExist(rmErr) {
+			// Report it rather than swallowing: a leftover partial dump
+			// that nobody mentions is worse than a noisy error, because
+			// retention would later count it as a backup.
+			return Result{}, fmt.Errorf("%w (além disso, não foi possível remover o arquivo incompleto %s: %v)", err, outPath, rmErr)
+		}
 		return Result{}, err
 	}
 
