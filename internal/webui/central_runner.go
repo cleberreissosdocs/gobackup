@@ -151,6 +151,7 @@ func dbJobPayload(req DBJobRequest) map[string]any {
 		"host":             req.Host,
 		"port":             req.Port,
 		"username":         req.Username,
+		"password":         req.Password,
 		"database":         req.Database,
 		"sqlite_path":      req.SQLitePath,
 		"compression":      req.Compression,
