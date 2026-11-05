@@ -258,16 +258,22 @@ func (s *Store) CreateDBConnection(ctx context.Context, agentID uuid.UUID, name 
 		return uuid.Nil, err
 	}
 	var id uuid.UUID
-	err = s.Pool.QueryRow(ctx, `
+	insertErr := s.Pool.QueryRow(ctx, `
 		INSERT INTO db_connections (agent_id, name, engine, host, port, username, password_enc, database_name, sqlite_path)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT DO NOTHING
 		RETURNING id
 	`, agentID, name, string(engine), host, port, username, sealed, databaseName, sqlitePath).Scan(&id)
-	if err != nil {
-		err = s.Pool.QueryRow(ctx, `SELECT id FROM db_connections WHERE agent_id=$1 AND name=$2`, agentID, name).Scan(&id)
-		if err != nil {
-			return uuid.Nil, fmt.Errorf("create db connection: %w", err)
+	if insertErr != nil {
+		// The INSERT only hits ON CONFLICT DO NOTHING (and so returns zero
+		// rows) when a conflicting unique constraint actually fires; any
+		// OTHER failure (e.g. a CHECK constraint rejecting the engine
+		// value) also lands here with no row scanned, and must not be
+		// silently discarded by the fallback lookup below — a caller
+		// seeing only "no rows in result set" from that fallback has no
+		// way to tell "a stale duplicate" from "the engine is invalid".
+		if err := s.Pool.QueryRow(ctx, `SELECT id FROM db_connections WHERE agent_id=$1 AND name=$2`, agentID, name).Scan(&id); err != nil {
+			return uuid.Nil, fmt.Errorf("create db connection: %w", insertErr)
 		}
 	}
 	// keep the connection details current if the same name is reused.
