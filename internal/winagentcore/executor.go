@@ -170,6 +170,12 @@ func jobFromDBPayload(payload map[string]any) Job {
 		Compression:   defaultStr(payloadStr(payload, "compression"), "gzip"),
 		Dest:          NormalizeDestPath(payloadStr(payload, "destination_path"), payloadStr(payload, "destination_type")),
 		DestType:      defaultStr(payloadStr(payload, "destination_type"), "local"),
+		// Credentials for a network (SMB/UNC) destination — same fields
+		// and same encrypt-at-the-boundary handling as the file job's
+		// (see jobFromFilePayload); connectJobShares doesn't care which
+		// kind of job it is authenticating.
+		NetworkUser:        strings.TrimSpace(payloadStr(payload, "network_user")),
+		NetworkPasswordEnc: encryptOrEmpty(payloadStr(payload, "network_password")),
 		SSHHost:       payloadStr(payload, "ssh_host"),
 		SSHPort:       payloadInt(payload, "ssh_port", 22),
 		SSHUser:       payloadStr(payload, "ssh_user"),
@@ -254,6 +260,10 @@ func dbJobResult(j Job) map[string]any {
 		"destination_path": j.Dest, "destination_type": j.DestType,
 		"ssh_host": j.SSHHost, "ssh_port": j.SSHPort, "ssh_user": j.SSHUser, "ssh_key_path": j.SSHKey,
 		"retention_days": j.RetentionDays, "cron": j.Cron, "enabled": j.Enabled,
+		// network_user/has_network_password mirror fileJobResult's
+		// fields of the same name: the secret itself is never sent
+		// back, only whether one is stored and who it's for.
+		"network_user": j.NetworkUser, "has_network_password": j.NetworkPasswordEnc != "",
 		// Mirrors has_network_password: the secret itself is never sent
 		// back, only whether one is stored, so the form can show "uma
 		// senha está salva -- deixe em branco para mantê-la".
@@ -572,6 +582,15 @@ func (e *Executor) runDBJob(j Job, password string) {
 	ctx, jc := e.registerControl(ctx, j.ID, "database")
 	_ = jc
 	defer e.unregisterControl(j.ID)
+
+	// Authenticate to the destination's network share BEFORE dumping, the
+	// same way runFileJob does — a no-op for an ordinary local/SSH
+	// destination, so this is safe unconditionally.
+	if netErr := e.connectJobShares(j); netErr != nil {
+		e.Registry.Set(j.ID, RunState{Status: "failed", Percent: -1, Message: netErr.Error()})
+		_ = e.Store.UpdateStatus(j.ID, "failed", netErr.Error(), 0, 0, startedAt)
+		return
+	}
 
 	result, err := RunDBJob(ctx, j, password)
 	if err != nil {

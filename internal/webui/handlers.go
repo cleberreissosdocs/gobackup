@@ -301,6 +301,11 @@ func dbJobFromForm(r *http.Request) DBJobRequest {
 		Compression: r.FormValue("compression"),
 		DestPath:    r.FormValue("dest_path"),
 		DestType:    r.FormValue("dest_type"),
+		// Blank password means "keep the one already stored" on an
+		// edit (and "none" on a create) — same convention as the file
+		// job's network credential, never "clear it".
+		NetworkUser:     strings.TrimSpace(r.FormValue("network_user")),
+		NetworkPassword: r.FormValue("network_password"),
 		SSHHost:     r.FormValue("ssh_host"),
 		SSHUser:     r.FormValue("ssh_user"),
 		SSHKey:      r.FormValue("ssh_key"),
@@ -391,7 +396,8 @@ func (s *Site) handleEditJobForm(w http.ResponseWriter, r *http.Request) {
 	if dbReq, derr := runner.GetDBJob(ctx, jobID); derr == nil {
 		s.renderPage(w, r, "Editar tarefa — "+name, editDBTmpl, map[string]any{
 			"Name": name, "Base": s.base(r), "JobID": jobID, "Job": dbReq, "CSRF": s.Auth.CSRFToken(r),
-			"AgentTZ": s.timezoneLabel(r),
+			"Platform": s.platform(r),
+			"AgentTZ":  s.timezoneLabel(r),
 		})
 		return
 	}

@@ -157,6 +157,8 @@ func dbJobPayload(req DBJobRequest) map[string]any {
 		"compression":      req.Compression,
 		"destination_path": req.DestPath,
 		"destination_type": req.DestType,
+		"network_user":     req.NetworkUser,
+		"network_password": req.NetworkPassword,
 		"ssh_host":         req.SSHHost,
 		"ssh_port":         req.SSHPort,
 		"ssh_user":         req.SSHUser,
@@ -298,6 +300,9 @@ func (r *CentralRunner) GetDBJob(ctx context.Context, jobID string) (DBJobReques
 		Name: strField(m, "name"), Engine: strField(m, "engine"), Host: strField(m, "host"), Port: intField(m, "port"),
 		Username: strField(m, "username"), Database: strField(m, "database"), SQLitePath: strField(m, "sqlite_path"),
 		Compression: strField(m, "compression"), DestPath: strField(m, "destination_path"), DestType: strField(m, "destination_type"),
+		// No "network_password" here, deliberately: the agent never
+		// sends it back, and the form must not render a stored secret.
+		NetworkUser: strField(m, "network_user"), HasNetworkPassword: boolField(m, "has_network_password"),
 		SSHHost: strField(m, "ssh_host"), SSHPort: intField(m, "ssh_port"), SSHUser: strField(m, "ssh_user"), SSHKey: strField(m, "ssh_key_path"),
 		RetentionDays: intField(m, "retention_days"), Cron: strField(m, "cron"), Enabled: boolField(m, "enabled"),
 	}, nil

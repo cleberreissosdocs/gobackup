@@ -70,6 +70,13 @@ type DBJobRequest struct {
 	Compression string // gzip|zip|none
 	DestPath    string
 	DestType    string
+	// NetworkUser/NetworkPassword authenticate to an SMB/UNC destination
+	// path. WINDOWS AGENT ONLY, same restriction and same blank-keeps-
+	// the-secret convention as FileJobRequest's fields of the same name
+	// — see the doc comment there.
+	NetworkUser        string
+	NetworkPassword    string
+	HasNetworkPassword bool
 	SSHHost     string
 	SSHPort     int
 	SSHUser     string
