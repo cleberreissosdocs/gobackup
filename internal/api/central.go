@@ -972,7 +972,7 @@ tr.gb-row-offline td { color: var(--gb-text-faint); }
   <td>{{.Name}}{{if not .Enabled}} <small>(desabilitada)</small>{{end}}</td>
   <td>{{if eq .Kind "files"}}Arquivos{{else}}Banco de dados{{end}}</td>
   <td>{{if .Cron}}{{humanizeCron .Cron}}{{else}}<small>manual</small>{{end}}</td>
-  <td>{{if eq .JobStatus "running"}}<a href="/agents/{{.AgentID}}/jobs/{{.JobID}}/progress" class="status-running">Executando</a>{{if ge .Percent 0}}<small class="status-percent">{{.Percent}}%</small>{{end}}{{else if eq .JobStatus "success"}}<span class="status-success">sucesso</span>{{else if eq .JobStatus "failed"}}<span class="status-failed">falhou</span>{{else}}<small>nunca executada</small>{{end}}</td>
+  <td>{{if eq .JobStatus "running"}}<a href="/agents/{{.AgentID}}/jobs/{{.JobID}}/progress" class="status-running">Executando</a>{{if ge .Percent 0}}<small class="status-percent">{{.Percent}}%</small>{{end}}{{else if eq .JobStatus "success"}}<span class="status-success">sucesso</span>{{else if eq .JobStatus "failed"}}<a href="/agents/{{.AgentID}}/jobs/{{.JobID}}/progress" class="status-failed">falhou</a>{{else}}<small>nunca executada</small>{{end}}</td>
   <td style="white-space:nowrap;">
     {{if .AgentOnline}}
     <a href="/agents/{{.AgentID}}/jobs/{{.JobID}}/edit">Editar</a>
